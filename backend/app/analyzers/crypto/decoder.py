@@ -1,20 +1,29 @@
 from __future__ import annotations
 
+import base64
 import re
 import time
 from dataclasses import dataclass
 
 from app.analyzers.crypto.transforms import (
-    TransformOutput,
     decode_base32,
+    decode_base58,
     decode_base64,
     decode_base85,
     decode_binary,
+    decode_decimal_ascii,
+    decode_escaped_bytes,
     decode_hex,
+    decode_html_entities,
+    decode_morse,
+    decode_octal,
+    decode_unicode_escapes,
     decode_url,
+    decode_utf16,
     generate_transformations,
     parse_xor_key,
 )
+from app.analyzers.crypto.artifacts import analyze_bytes, detect_artifacts
 from app.core.analyzers import BaseAnalyzer
 from app.core.flag_detection import DetectedFlag, FlagDetector
 from app.core.scoring import ScoredBytes, score_bytes
@@ -85,6 +94,26 @@ def detect_encodings(data: bytes) -> list[EncodingDetection]:
                 name="URL", confidence=0.99, evidence="One or more percent-encoded bytes were found."
             )
         )
+    optional_detections = (
+        (decode_base58, "Base58", 0.58, "The input uses only the Base58 alphabet."),
+        (decode_octal, "Octal", 0.82, "Delimited values form valid bytes in base 8."),
+        (decode_decimal_ascii, "Decimal ASCII", 0.88, "Delimited decimal values form bytes."),
+        (decode_html_entities, "HTML Entities", 0.96, "HTML character entities were decoded."),
+        (decode_unicode_escapes, "Unicode Escapes", 0.98, "Unicode escape sequences were found."),
+        (decode_escaped_bytes, "Escaped Bytes", 0.99, "The input is a sequence of escaped bytes."),
+        (decode_morse, "Morse", 0.91, "Only recognized Morse symbols were found."),
+    )
+    for decoder, name, confidence, evidence in optional_detections:
+        if decoder(data) is not None:
+            detections.append(
+                EncodingDetection(name=name, confidence=confidence, evidence=evidence)
+            )
+    if decode_utf16(data) is not None:
+        detections.append(
+            EncodingDetection(
+                name="UTF-16", confidence=0.95, evidence="A UTF-16 byte order mark or alternating null-byte pattern was found."
+            )
+        )
     if decode_base85(data) and (
         compact.startswith(b"<~")
         or (
@@ -150,6 +179,15 @@ def _syntax_bonus(state: _State) -> float:
         "base64": 0.10,
         "base32": 0.09,
         "base85": 0.05,
+        "base58": 0.04,
+        "octal": 0.10,
+        "decimal-ascii": 0.10,
+        "html": 0.11,
+        "unicode": 0.11,
+        "escaped-bytes": 0.12,
+        "morse": 0.09,
+        "utf16": 0.10,
+        "gzip": 0.12,
     }.get(state.chain[0].family, 0.0)
 
 
@@ -160,12 +198,14 @@ def _ranked_score(state: _State) -> float:
 
 def _candidate_schema(state: _State) -> DecodingCandidate:
     output, output_format, truncated = _render_output(state.data)
+    artifacts = detect_artifacts(state.data)
     components = state.scored.components
     depth_penalty = max(0, len(state.chain) - 1) * 0.04
     syntax_bonus = _syntax_bonus(state)
     return DecodingCandidate(
         output=output,
         output_format=output_format,
+        output_base64=base64.b64encode(state.data).decode("ascii"),
         output_bytes=len(state.data),
         output_truncated=truncated,
         chain=_schema_steps(state.chain),
@@ -181,6 +221,8 @@ def _candidate_schema(state: _State) -> DecodingCandidate:
             syntax_bonus=syntax_bonus,
         ),
         flags=[_schema_flag(flag, state.chain) for flag in state.flags],
+        artifacts=artifacts,
+        analysis=analyze_bytes(state.data, artifacts),
     )
 
 
@@ -265,6 +307,15 @@ class RecursiveDecoder(BaseAnalyzer[DecodeRequest, DecodeResponse]):
                     "base64": 0.42,
                     "base32": 0.38,
                     "base85": 0.12,
+                    "base58": 0.08,
+                    "octal": 0.40,
+                    "decimal-ascii": 0.40,
+                    "html": 0.42,
+                    "unicode": 0.44,
+                    "escaped-bytes": 0.48,
+                    "morse": 0.35,
+                    "utf16": 0.45,
+                    "gzip": 0.50,
                 }.get(state.chain[-1].family, 0.0)
                 return (
                     state.scored.total + encoding_hint * 0.10 + family_prior,

@@ -1,7 +1,6 @@
 import { renderSidebar } from './sidebar.ts';
 import { renderTopbar } from './topbar.ts';
 import { renderDashboard } from './modules/dashboard.ts';
-import { renderCases } from './modules/cases.ts';
 import { renderAutoTriage } from './modules/autotriage.ts';
 import { renderWeb } from './modules/web.ts';
 import { renderCrypto } from './modules/crypto.ts';
@@ -22,7 +21,6 @@ type RouteRenderer = (view?: string) => void;
 
 const routes: Record<string, RouteRenderer> = {
   dashboard: renderDashboard,
-  cases: renderCases,
   autotriage: renderAutoTriage,
   web: renderWeb,
   crypto: renderCrypto,

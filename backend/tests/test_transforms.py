@@ -1,14 +1,24 @@
 import base64
+import gzip
 
 from app.analyzers.crypto.transforms import (
     apply_xor,
     decode_base32,
+    decode_base58,
     decode_base64,
     decode_base85,
     decode_binary,
+    decode_decimal_ascii,
+    decode_escaped_bytes,
     decode_hex,
+    decode_gzip,
+    decode_html_entities,
+    decode_morse,
+    decode_octal,
+    decode_unicode_escapes,
     decode_url,
     rotate_ascii,
+    rotate47,
 )
 
 
@@ -42,3 +52,21 @@ def test_malformed_encoded_values_are_rejected() -> None:
     assert decode_binary(b"01012") is None
     assert decode_url(b"plain text") is None
 
+
+def test_ctf_text_decoders_and_rot47() -> None:
+    assert decode_octal(b"103 124 106") == b"CTF"
+    assert decode_decimal_ascii(b"67,84,70") == b"CTF"
+    assert decode_html_entities(b"CTF&#123;ok&#125;") == b"CTF{ok}"
+    assert decode_unicode_escapes(br"CTF\u007bok\u007d") == b"CTF{ok}"
+    assert decode_escaped_bytes(br"\x43\x54\x46") == b"CTF"
+    assert decode_morse(b"-.-. - ..-.") == b"CTF"
+    assert rotate47(rotate47(b"CTF{rot47}")) == b"CTF{rot47}"
+
+
+def test_base58_preserves_leading_zero_bytes() -> None:
+    assert decode_base58(b"1PcgM") == b"\x00CTF"
+
+
+def test_gzip_decoder_enforces_output_limit_during_decompression() -> None:
+    assert decode_gzip(gzip.compress(b"safe"), maximum_output=16) == b"safe"
+    assert decode_gzip(gzip.compress(b"A" * 1_024), maximum_output=32) is None

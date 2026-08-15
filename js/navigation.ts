@@ -39,10 +39,6 @@ export const navigationSections: NavigationSection[] = [
         child('dashboard', 'artifacts', 'Evidence Files'),
         child('dashboard', 'evidence', 'Evidence Graph'),
       ] },
-      { id: 'cases', label: 'Cases', icon: 'cases', children: [
-        child('cases', 'all', 'All Cases'),
-        child('cases', 'workspace', 'Case Workspace'),
-      ] },
       { id: 'autotriage', label: 'Auto Triage', icon: 'triage', children: [
         child('autotriage', 'new', 'New Analysis'),
         child('autotriage', 'queue', 'Queue & Progress'),
@@ -58,9 +54,8 @@ export const navigationSections: NavigationSection[] = [
         child('web', 'active', 'Active Recon'),
       ] },
       { id: 'crypto', label: 'Cryptography', icon: 'crypto', children: [
-        child('crypto', 'decoder', 'Decode Workbench'),
-        child('crypto', 'pipeline', 'Transform Pipeline'),
-        child('crypto', 'flags', 'Flag Candidates'),
+        child('crypto', 'decoder', 'Decoder'),
+        child('crypto', 'decryptor', 'Decryptor'),
       ] },
       { id: 'forensics', label: 'Forensics', icon: 'forensics', children: [
         child('forensics', 'files', 'File / Archive Analysis'),
@@ -69,9 +64,7 @@ export const navigationSections: NavigationSection[] = [
         child('forensics', 'other', 'Other Forensics'),
       ] },
       { id: 'network', label: 'Network / PCAP', icon: 'network', children: [
-        child('network', 'overview', 'Capture Overview'),
-        child('network', 'protocols', 'Packets / Protocols'),
-        child('network', 'streams', 'Streams / Evidence'),
+        child('network', 'analyzer', 'Network Analyzer'),
       ] },
       { id: 'osint', label: 'OSINT', icon: 'osint', children: [
         child('osint', 'website', 'Website OSINT'),
@@ -129,9 +122,11 @@ const items = navigationSections.flatMap(section => section.items);
 const routes = new Map(items.flatMap(item => item.children.map(itemChild => [itemChild.route, { parent: item, child: itemChild }] as const)));
 
 const legacyRoutes: Record<string, string> = {
-  dashboard: 'dashboard/findings', cases: 'cases/all', autotriage: 'autotriage/new',
+  dashboard: 'dashboard/findings', autotriage: 'autotriage/new',
   web: 'web/passive', crypto: 'crypto/decoder', forensics: 'forensics/files',
-  stego: 'forensics/image-steganography', network: 'network/overview', osint: 'osint/website',
+  stego: 'forensics/image-steganography', network: 'network/analyzer',
+  'network/overview': 'network/analyzer', 'network/protocols': 'network/analyzer',
+  'network/streams': 'network/analyzer', osint: 'osint/website',
   'osint/investigation': 'osint/website', 'osint/infrastructure': 'osint/website',
   'osint/identities': 'osint/username', 'osint/search': 'osint/google-dorks',
   reverse: 'reverse/overview', binary: 'binary/protections', malware: 'malware/overview',

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import api_router
 from app.core.errors import (
     ArtifactTooLargeError,
+    CryptoInputError,
     DecoderInputError,
     InvalidArtifactError,
     InvalidOsintTargetError,
@@ -61,6 +62,23 @@ async def decoder_input_error_handler(
         content={
             "error": {
                 "code": "INVALID_DECODER_OPTION",
+                "message": str(exc),
+                "details": {},
+            }
+        },
+    )
+
+
+@app.exception_handler(CryptoInputError)
+async def crypto_input_error_handler(
+    request: Request, exc: CryptoInputError
+) -> JSONResponse:
+    del request
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": {
+                "code": "INVALID_CRYPTO_INPUT",
                 "message": str(exc),
                 "details": {},
             }

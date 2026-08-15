@@ -8,7 +8,7 @@ export function renderSettings(view?: string) {
   if (!main) return;
   main.innerHTML = `<div class="main-content">
     <div class="page-header">
-      <div><div class="page-title">Settings</div><div class="page-subtitle">Configure CTFKit preferences and integrations</div></div>
+      <div><div class="page-title">Settings</div><div class="page-subtitle">Configure Pr0y1 ToolKit preferences and integrations</div></div>
     </div>
     <div class="settings-layout">
       <div class="settings-nav" id="settings-nav">
@@ -39,7 +39,7 @@ function renderGeneral() {
   return `
     <div class="settings-section">
       <div class="settings-section-title">General Settings</div>
-      <div class="settings-section-desc">Configure basic CTFKit preferences</div>
+      <div class="settings-section-desc">Configure basic Pr0y1 ToolKit preferences</div>
       <div class="settings-field">
         <div class="settings-field-label">Default Case Name Prefix</div>
         <input class="input" type="text" value="CTF-" style="max-width:300px" />
@@ -104,7 +104,7 @@ function renderAnalyzers() {
 function renderIntegrations() {
   return `<div class="settings-section">
     <div class="settings-section-title">Integrations</div>
-    <div class="settings-section-desc">Connect CTFKit to external services</div>
+    <div class="settings-section-desc">Connect Pr0y1 ToolKit to external services</div>
     <div class="settings-field">
       <div class="settings-field-label">VirusTotal API Key</div>
       <input class="input" type="password" value="••••••••••••••••" style="max-width:400px;font-family:var(--font-mono)" />
@@ -124,7 +124,7 @@ function renderIntegrations() {
 function renderBackend() {
   return `<div class="settings-section">
     <div class="settings-section-title">Backend Configuration</div>
-    <div class="settings-section-desc">Configure the CTFKit analysis backend</div>
+    <div class="settings-section-desc">Configure the Pr0y1 ToolKit analysis backend</div>
     <div class="panel"><div class="panel-body">
       <div class="kv-list">
         <div class="kv-key">Status</div><div class="kv-value"><span class="badge badge-dot badge-success">Connected</span></div>
@@ -142,7 +142,7 @@ function renderBackend() {
 function renderAppearance() {
   return `<div class="settings-section">
     <div class="settings-section-title">Appearance</div>
-    <div class="settings-section-desc">Customize the look and feel of CTFKit</div>
+    <div class="settings-section-desc">Customize the look and feel of Pr0y1 ToolKit</div>
     <div class="settings-field">
       <div class="settings-field-label">Theme</div>
       <select class="select" style="max-width:200px">

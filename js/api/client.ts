@@ -34,7 +34,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     });
   } catch (error) {
     throw new ApiError(
-      error instanceof Error ? error.message : 'Unable to reach the CTFKit backend.',
+      error instanceof Error ? error.message : 'Unable to reach the Pr0y1 ToolKit backend.',
       0,
       'NETWORK_ERROR',
     );

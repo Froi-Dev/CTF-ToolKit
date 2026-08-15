@@ -26,6 +26,10 @@ Location: Workspace Root (CTF-ToolKit\)
 -------------------------------------------------------------------
 Location: Backend Directory (CTF-ToolKit\backend)
 
+- Network analysis automatically discovers a normal Windows Wireshark install
+  at C:\Program Files\Wireshark\tshark.exe. For a custom install, set:
+  $env:CTFKIT_TSHARK_PATH = 'D:\path\to\Wireshark\tshark.exe'
+
 - Prerequisites (first time setup):
   cd backend
   pip install -e ".[test]"
@@ -55,11 +59,20 @@ Terminal 1 (Frontend):
 
 Terminal 2 (Backend):
   cd c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit\backend
-  wireshark-4.2.2-x64.exe
+  uvicorn app.main:app --reload
 
 
 -------------------------------------------------------------------
-4. DEFAULT ENDPOINTS & URLS
+4. ONE-LINER START COMMAND (Run anywhere outside terminal)
+-------------------------------------------------------------------
+cd "c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit"; Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; uvicorn app.main:app --reload"; npm run dev
+
+# Or with full absolute paths:
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd 'c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit\backend'; uvicorn app.main:app --reload"; npm --prefix "c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit" run dev
+
+
+-------------------------------------------------------------------
+5. DEFAULT ENDPOINTS & URLS
 -------------------------------------------------------------------
 - Frontend Application:  http://localhost:5173
 - Backend API Base:       http://127.0.0.1:8000/api/v1

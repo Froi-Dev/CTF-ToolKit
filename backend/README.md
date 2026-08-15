@@ -1,8 +1,13 @@
 # CTFKit backend
 
-The backend currently provides six bounded analysis slices:
+The backend currently provides seven bounded analysis slices:
 
-- recursive cryptography decoding at `POST /api/v1/crypto/decode`;
+- type-aware auto triage at `POST /api/v1/auto-triage/analyze`, combining the
+  baseline file analyzer with applicable image or PCAP specialists;
+- recursive cryptography decoding at `POST /api/v1/crypto/decode`, deterministic
+  recipes with per-step artifact inspection at `POST /api/v1/crypto/recipes/run`,
+  and RSA material analysis/direct decryption at
+  `POST /api/v1/crypto/decrypt/analyze` and `POST /api/v1/crypto/decrypt/rsa`;
 - static file/forensics triage at `POST /api/v1/forensics/triage` using a
   multipart `file` field.
 - offline PCAP/PCAPNG analysis at `POST /api/v1/network/analyze` using a
@@ -23,6 +28,12 @@ collisions, encryption, excessive member counts, excessive expanded sizes,
 and suspicious compression ratios. Temporary extracts are hashed and
 described in the response, then removed; they are not evidence persistence.
 
+Auto triage always runs the static file checks above. It selects PNG/JPEG
+structure, bit-plane, and LSB inspection or PCAP/PCAPNG protocol analysis from
+detected magic bytes rather than the filename extension. Its response records
+completed, skipped, unavailable, and failed analyzer states, so a missing
+TShark installation does not discard the baseline result.
+
 ```powershell
 cd backend
 py -3.12 -m pip install -e ".[test]"
@@ -40,7 +51,10 @@ reimplementing Wireshark. It returns bounded packet metadata, protocol
 hierarchies, bidirectional conversations, DNS/HTTP/FTP activity, TCP stream
 discovery and reconstruction, exported HTTP/FTP objects, plaintext credential
 candidates, interesting ports, flag candidates, and an evidence-time timeline.
-Install Wireshark/TShark and ensure `tshark` is on `PATH`; otherwise the network
+Install Wireshark/TShark. On Windows, the backend discovers TShark from `PATH`
+or the standard `Program Files\Wireshark\tshark.exe` installation. A custom
+location can be supplied with `CTFKIT_TSHARK_PATH`; on other platforms, place
+`tshark` on `PATH` or use that override. If it cannot be resolved, the network
 endpoint returns a structured `TOOL_NOT_AVAILABLE` response. Captures are
 processed offline with name resolution disabled, and temporary captures and
 exported objects are removed after the response is built.

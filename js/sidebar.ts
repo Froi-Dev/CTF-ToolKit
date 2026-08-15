@@ -16,7 +16,7 @@ export function renderSidebar(activePath: string): void {
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         <polyline points="9 12 11 14 15 10"/>
       </svg>
-      <span class="sidebar-brand-name">CTFKit</span>
+      <span class="sidebar-brand-name">Pr0y1 ToolKit</span>
     </div>
     <nav class="sidebar-nav" aria-label="Primary navigation">
   `;
@@ -28,9 +28,16 @@ export function renderSidebar(activePath: string): void {
 
     for (const item of section.items) {
       const isActiveGroup = item.id === activeRoute.parent.id;
+      const isDirect = item.children.length === 1;
       const isExpanded = expandedItem === item.id;
       const submenuId = `submenu-${item.id}`;
-      html += `
+      html += isDirect ? `
+        <a class="sidebar-item ${isActiveGroup ? 'active' : ''}" href="#${item.children[0].route}"
+          ${isActiveGroup ? 'aria-current="page"' : ''} title="${item.label}">
+          ${icons[item.icon as keyof typeof icons]}
+          <span class="sidebar-item-label">${item.label}</span>
+        </a>
+      ` : `
         <button class="sidebar-item sidebar-parent ${isActiveGroup ? 'has-active-child' : ''}" type="button"
           data-nav-parent="${item.id}" data-default-route="${item.children[0].route}"
           aria-expanded="${isExpanded}" aria-controls="${submenuId}" title="${item.label}">

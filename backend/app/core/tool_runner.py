@@ -37,7 +37,38 @@ class ToolRunner:
         self._default_output_limit = default_output_limit
 
     def available(self, tool: str) -> bool:
-        return tool.lower() in self._allowlist and shutil.which(tool) is not None
+        return self._resolve_executable(tool) is not None
+
+    def _resolve_executable(self, tool: str) -> str | None:
+        """Resolve an allowlisted executable without accepting arbitrary tool names."""
+        normalized = tool.lower()
+        if normalized not in self._allowlist:
+            return None
+
+        override_name = {"tshark": "CTFKIT_TSHARK_PATH"}.get(normalized)
+        if override_name:
+            override = os.environ.get(override_name)
+            if override:
+                candidate = Path(override).expanduser()
+                if candidate.is_file():
+                    return str(candidate.resolve())
+
+        discovered = shutil.which(tool)
+        if discovered is not None:
+            return discovered
+
+        if os.name == "nt" and normalized == "tshark":
+            installation_roots = (
+                os.environ.get("ProgramFiles"),
+                os.environ.get("ProgramFiles(x86)"),
+                r"C:\Program Files",
+                r"C:\Program Files (x86)",
+            )
+            for root in dict.fromkeys(root for root in installation_roots if root):
+                candidate = Path(root) / "Wireshark" / "tshark.exe"
+                if candidate.is_file():
+                    return str(candidate.resolve())
+        return None
 
     def run(
         self,
@@ -51,7 +82,7 @@ class ToolRunner:
         normalized = tool.lower()
         if normalized not in self._allowlist:
             raise ToolNotAvailableError(tool)
-        executable = shutil.which(tool)
+        executable = self._resolve_executable(tool)
         if executable is None:
             raise ToolNotAvailableError(tool)
         if not cwd.is_dir():

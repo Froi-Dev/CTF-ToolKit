@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import string
 
 from app.schemas.network import ProtocolHierarchyNode
 
@@ -45,6 +46,7 @@ INTERESTING_PORTS: dict[tuple[str, int], tuple[str, str]] = {
     ("tcp", 5432): ("PostgreSQL", "Database service traffic"),
     ("tcp", 6379): ("Redis", "Data-store service traffic"),
     ("tcp", 8080): ("HTTP alternate", "Common alternate web-service port"),
+    ("udp", 55000): ("CTF test broadcast", "High UDP test port that may carry rogue-service announcements"),
 }
 
 
@@ -148,3 +150,39 @@ def ascii_preview(data: bytes, maximum: int = 16_384) -> str:
         chr(byte) if byte in (9, 10, 13) or 32 <= byte <= 126 else "."
         for byte in preview
     )
+
+
+def hex_bytes(value: str, maximum: int = 64 * 1024) -> bytes:
+    """Decode a bounded TShark byte-field value such as ``aa:bb:cc``.
+
+    TShark can aggregate repeated field occurrences with commas. Joining those
+    occurrences preserves their packet order while rejecting malformed text.
+    """
+
+    if not value or maximum <= 0:
+        return b""
+    decoded = bytearray()
+    hexdigits = set(string.hexdigits)
+    for occurrence in value.split(","):
+        compact = "".join(character for character in occurrence if character in hexdigits)
+        if not compact or len(compact) % 2:
+            continue
+        try:
+            chunk = bytes.fromhex(compact)
+        except ValueError:
+            continue
+        remaining = maximum - len(decoded)
+        if remaining <= 0:
+            break
+        decoded.extend(chunk[:remaining])
+    return bytes(decoded)
+
+
+def hex_byte_length(value: str) -> int:
+    total = 0
+    hexdigits = set(string.hexdigits)
+    for occurrence in value.split(","):
+        compact = "".join(character for character in occurrence if character in hexdigits)
+        if compact and len(compact) % 2 == 0:
+            total += len(compact) // 2
+    return total

@@ -1,14 +1,21 @@
 import { ApiError } from '../api/client.ts';
 import {
   analyzePcapFile,
+  getPcapAnalysisProgress,
+  type InvestigationCategory,
+  type InvestigationTarget,
   type NetworkAnalysisResponse,
+  type NetworkFlagCandidate,
   type ProtocolHierarchyNode,
   type TcpStream,
+  type UdpStream,
 } from '../api/network.ts';
 import { icons } from '../data.ts';
 
-type NetworkTab = 'overview' | 'packets' | 'protocols' | 'conversations' | 'application' | 'streams' | 'evidence' | 'timeline';
+type NetworkTab = 'overview' | 'investigate' | 'packets' | 'protocols' | 'conversations' | 'application' | 'streams' | 'evidence' | 'timeline';
 type StreamView = 'ascii' | 'hex';
+type InvestigationFilter = 'all' | InvestigationCategory;
+type InvestigationSort = 'suspicion' | 'newest' | 'oldest' | 'protocol';
 
 const MAX_UPLOAD_BYTES = 128 * 1024 * 1024;
 const MAX_TABLE_ROWS = 500;
@@ -19,7 +26,14 @@ let activeStreamView: StreamView = 'ascii';
 let selectedFile: File | null = null;
 let latestResponse: NetworkAnalysisResponse | null = null;
 let selectedStreamId: number | null = null;
+let selectedStreamProtocol: 'tcp' | 'udp' = 'tcp';
+let selectedTargetId: string | null = null;
+let selectedPacketNumber: number | null = null;
+let investigationFilter: InvestigationFilter = 'all';
+let investigationSort: InvestigationSort = 'suspicion';
+let customFlagPrefix = '';
 let activeRequest: AbortController | null = null;
+let progressPollTimer: number | null = null;
 let analyzing = false;
 let statusMessage = 'Ready for an offline capture artifact';
 let statusIsError = false;
@@ -56,6 +70,7 @@ function emptyTableRow(columns: number, message: string): string {
 }
 
 export function renderNetwork(): void {
+  stopProgressPolling();
   activeRequest?.abort();
   activeRequest = null;
   activeTab = 'overview';
@@ -63,6 +78,12 @@ export function renderNetwork(): void {
   selectedFile = null;
   latestResponse = null;
   selectedStreamId = null;
+  selectedStreamProtocol = 'tcp';
+  selectedTargetId = null;
+  selectedPacketNumber = null;
+  investigationFilter = 'all';
+  investigationSort = 'suspicion';
+  customFlagPrefix = '';
   analyzing = false;
   statusMessage = 'Ready for an offline capture artifact';
   statusIsError = false;
@@ -92,6 +113,9 @@ function renderShell(): void {
           <div class="text-sm truncate" id="network-selection">${selectedFile ? escapeHtml(selectedFile.name) : 'No capture selected'}</div>
           <div class="text-xs text-muted">PCAP/PCAPNG only, up to 128 MiB. The saved capture is analyzed offline; no network interface is accessed.</div>
         </div>
+        <label class="text-xs text-muted" style="min-width:190px">Custom flag prefix
+          <input id="network-flag-prefix" class="form-input mono" maxlength="65" placeholder="exampleCTF{" value="${escapeHtml(customFlagPrefix)}">
+        </label>
         <div class="text-xs ${statusIsError ? '' : 'text-muted'}" id="network-status" ${statusIsError ? 'style="color:var(--error)"' : ''}>${escapeHtml(statusMessage)}</div>
       </div>
     </div>
@@ -113,12 +137,13 @@ function renderUploadState(): string {
 function renderResults(result: NetworkAnalysisResponse): string {
   const tabs: Array<[NetworkTab, string, number | null]> = [
     ['overview', 'Overview', null],
+    ['investigate', 'Investigate', result.investigation_targets.length],
     ['packets', 'Packets', result.packets.length],
     ['protocols', 'Protocols', null],
     ['conversations', 'Conversations', result.conversations.length],
     ['application', 'DNS / HTTP / FTP', result.dns.length + result.http.length + result.ftp.length],
-    ['streams', 'TCP Streams', result.tcp_streams.length],
-    ['evidence', 'Evidence', result.plaintext_credentials.length + result.transferred_files.length + result.flags.length],
+    ['streams', 'Streams', result.tcp_streams.length + result.udp_streams.length],
+    ['evidence', 'Evidence', result.plaintext_credentials.length + result.transferred_files.length + result.insights.length + result.flags.length],
     ['timeline', 'Timeline', result.timeline.length],
   ];
   return `${renderStats(result)}
@@ -136,13 +161,16 @@ function renderStats(result: NetworkAnalysisResponse): string {
     <div class="stat-item"><div class="stat-label">Duration</div><div class="stat-value">${formatDuration(result.capture.duration_seconds)}</div></div>
     <div class="stat-item"><div class="stat-label">Unique Hosts</div><div class="stat-value">${result.capture.unique_hosts.toLocaleString()}</div></div>
     <div class="stat-item"><div class="stat-label">TCP Streams</div><div class="stat-value">${result.tcp_streams.length.toLocaleString()}</div></div>
+    <div class="stat-item"><div class="stat-label">UDP Streams</div><div class="stat-value">${result.udp_streams.length.toLocaleString()}</div></div>
     <div class="stat-item"><div class="stat-label">DNS Queries</div><div class="stat-value">${dnsQueries.toLocaleString()}</div></div>
     <div class="stat-item"><div class="stat-label">HTTP Requests</div><div class="stat-value">${httpRequests.toLocaleString()}</div></div>
+    <div class="stat-item"><div class="stat-label">Suspicious Targets</div><div class="stat-value">${result.investigation_summary.suspicious_targets.toLocaleString()}</div></div>
   </div></div>`;
 }
 
 function renderTab(result: NetworkAnalysisResponse): string {
   switch (activeTab) {
+    case 'investigate': return renderInvestigation(result);
     case 'packets': return renderPackets(result);
     case 'protocols': return renderProtocols(result);
     case 'conversations': return renderConversations(result);
@@ -163,6 +191,9 @@ function renderOverview(result: NetworkAnalysisResponse): string {
       <div class="kv-key">Format</div><div class="kv-value mono">${escapeHtml(result.capture.format)}</div>
       <div class="kv-key">File size</div><div class="kv-value">${formatBytes(result.capture.size)}</div>
       <div class="kv-key">Captured bytes</div><div class="kv-value">${formatBytes(result.capture.captured_bytes)}</div>
+      <div class="kv-key">Encapsulation</div><div class="kv-value">${escapeHtml(result.capture.encapsulations.join(', ') || 'Unknown')}</div>
+      <div class="kv-key">Interfaces</div><div class="kv-value">${result.capture.interfaces.length}</div>
+      <div class="kv-key">Snap length</div><div class="kv-value">${result.capture.snap_length === null ? 'Unknown' : formatBytes(result.capture.snap_length)}</div>
       <div class="kv-key">First packet</div><div class="kv-value">${escapeHtml(formatTimestamp(result.capture.first_seen))}</div>
       <div class="kv-key">Last packet</div><div class="kv-value">${escapeHtml(formatTimestamp(result.capture.last_seen))}</div>
       <div class="kv-key">SHA-256</div><div class="kv-value mono" style="word-break:break-all">${result.capture.sha256}</div>
@@ -171,12 +202,103 @@ function renderOverview(result: NetworkAnalysisResponse): string {
       <div class="kv-key">Credentials</div><div class="kv-value">${result.plaintext_credentials.length}</div>
       <div class="kv-key">Transferred files</div><div class="kv-value">${result.transferred_files.length}</div>
       <div class="kv-key">Flag candidates</div><div class="kv-value">${result.flags.length}</div>
+      <div class="kv-key">Decoded insights</div><div class="kv-value">${result.insights.length}</div>
       <div class="kv-key">Interesting ports</div><div class="kv-value">${result.interesting_ports.length}</div>
       <div class="kv-key">Timeline events</div><div class="kv-value">${result.timeline.length}</div>
+      <div class="kv-key">IPv4 / IPv6 hosts</div><div class="kv-value">${result.endpoints.ipv4_hosts.length} / ${result.endpoints.ipv6_hosts.length}</div>
+      <div class="kv-key">MAC addresses</div><div class="kv-value">${result.endpoints.mac_addresses.length}</div>
       <div class="kv-key">Analyzer</div><div class="kv-value mono">${escapeHtml(result.analyzer)}</div>
     </div></div></div>
   </div>
+  ${renderAnalysisTimings(result)}
   <div class="split-h split-h-1-1"><div>${renderProtocols(result, 12)}</div><div>${renderConversations(result, 12)}</div></div>`;
+}
+
+function renderAnalysisTimings(result: NetworkAnalysisResponse): string {
+  const stages = result.stage_timings.filter(item => item.stage !== 'total');
+  const total = result.stage_timings.find(item => item.stage === 'total');
+  return `<div class="section"><div class="section-header"><div class="section-title">Analysis performance</div><span class="text-xs text-muted">${total ? `${(total.duration_ms / 1000).toFixed(2)} seconds backend total` : 'Measured backend stages'}</span></div>
+    <table class="data-table"><thead><tr><th>Stage</th><th>Duration</th><th>Detail</th></tr></thead><tbody>
+      ${stages.length ? stages.map(item => `<tr><td class="font-medium">${escapeHtml(item.label)}</td><td class="mono">${(item.duration_ms / 1000).toFixed(3)}s</td><td class="text-muted">${escapeHtml(item.detail || '—')}</td></tr>`).join('') : emptyTableRow(3, 'No stage timings were returned.')}
+    </tbody></table>
+    ${result.tool_executions.length ? `<details class="mt-4"><summary class="text-sm">External TShark executions (${result.tool_executions.length})</summary><table class="data-table mt-4"><thead><tr><th>Operation</th><th>Duration</th><th>Exit</th></tr></thead><tbody>${result.tool_executions.map(item => `<tr><td class="mono">${escapeHtml(item.operation)}</td><td class="mono">${(item.duration_ms / 1000).toFixed(3)}s</td><td>${item.returncode}</td></tr>`).join('')}</tbody></table></details>` : ''}
+  </div>`;
+}
+
+function targetTypeLabel(target: InvestigationTarget): string {
+  return target.target_type.replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function investigationTargets(result: NetworkAnalysisResponse): InvestigationTarget[] {
+  const filtered = result.investigation_targets.filter(target => investigationFilter === 'all' || target.categories.includes(investigationFilter));
+  return filtered.sort((left, right) => {
+    if (investigationSort === 'newest') return Date.parse(right.last_seen || '') - Date.parse(left.last_seen || '');
+    if (investigationSort === 'oldest') return Date.parse(left.first_seen || '') - Date.parse(right.first_seen || '');
+    if (investigationSort === 'protocol') return (left.protocol || '').localeCompare(right.protocol || '') || right.suspicion.total - left.suspicion.total;
+    return right.suspicion.total - left.suspicion.total;
+  });
+}
+
+function renderInvestigation(result: NetworkAnalysisResponse): string {
+  const targets = investigationTargets(result);
+  const selected = targets.find(target => target.id === selectedTargetId) || targets[0] || null;
+  const filters: Array<[InvestigationFilter, string]> = [
+    ['all', 'All'], ['streams', 'Streams'], ['packets', 'Packets'], ['dns', 'DNS'], ['http', 'HTTP'],
+    ['files', 'Files'], ['credentials', 'Credentials'], ['covert', 'Covert'], ['encoded', 'Encoded'],
+    ['wireless', 'Wireless'], ['tls', 'TLS'], ['rare-traffic', 'Rare Traffic'],
+  ];
+  const outcome = result.investigation_summary.outcome === 'solved' ? 'Flag evidence recovered'
+    : result.investigation_summary.outcome === 'partially-solved' ? 'Suspicious evidence partially decoded'
+      : 'Manual investigation recommended';
+  return `<div class="panel mb-4 investigation-summary">
+    <div class="panel-body"><div class="flex items-center justify-between gap-4">
+      <div><div class="text-xs text-muted">AUTO ANALYSIS COMPLETE</div><div class="font-medium mt-2">${escapeHtml(outcome)}</div><div class="text-sm text-secondary mt-2">${escapeHtml(result.investigation_summary.message)}</div></div>
+      <div class="investigation-summary-count"><span>${result.investigation_summary.suspicious_targets}</span><small>ranked targets</small></div>
+    </div></div>
+  </div>
+  <div class="investigation-toolbar mb-4">
+    <div class="investigation-filters">${filters.map(([id, label]) => `<button class="btn btn-sm ${investigationFilter === id ? 'btn-primary' : 'btn-secondary'}" data-investigation-filter="${id}">${label}</button>`).join('')}</div>
+    <label class="text-xs text-muted">Sort
+      <select class="form-input" id="investigation-sort">
+        <option value="suspicion" ${investigationSort === 'suspicion' ? 'selected' : ''}>Highest Suspicion</option>
+        <option value="newest" ${investigationSort === 'newest' ? 'selected' : ''}>Newest</option>
+        <option value="oldest" ${investigationSort === 'oldest' ? 'selected' : ''}>Oldest</option>
+        <option value="protocol" ${investigationSort === 'protocol' ? 'selected' : ''}>Protocol</option>
+      </select>
+    </label>
+  </div>
+  <div class="investigation-workspace">
+    <div class="investigation-target-list panel">
+      <div class="panel-header">Ranked Targets <span class="tab-count">${targets.length}</span></div>
+      <div class="investigation-target-scroll">${targets.length ? targets.map((target, index) => `
+        <button class="investigation-target ${selected?.id === target.id ? 'active' : ''}" data-investigation-target="${escapeHtml(target.id)}">
+          <span class="investigation-rank">#${index + 1}</span><span class="investigation-target-copy"><strong>${escapeHtml(target.title)}</strong><small>${escapeHtml(targetTypeLabel(target))}${target.protocol ? ` - ${escapeHtml(target.protocol.toUpperCase())}` : ''}</small></span><span class="investigation-mini-score">${Math.round(target.suspicion.total)}</span>
+        </button>`).join('') : '<div class="panel-body text-sm text-muted">No target matches this category. The analyzer does not fabricate results for empty categories.</div>'}</div>
+    </div>
+    <div>${selected ? renderInvestigationTarget(selected) : '<div class="panel"><div class="panel-body text-sm text-muted">No measurable suspicious target was identified for this view.</div></div>'}</div>
+  </div>`;
+}
+
+function renderInvestigationTarget(target: InvestigationTarget): string {
+  const evidenceValue = (value: unknown): string => Array.isArray(value) ? value.join(', ') : typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+  return `<div class="panel investigation-detail">
+    <div class="panel-header flex items-center justify-between gap-4"><span>${escapeHtml(target.title)}</span><span class="badge badge-warning">${escapeHtml(targetTypeLabel(target))}</span></div>
+    <div class="panel-body">
+      <div class="investigation-score-row">
+        <div class="investigation-score"><span>${Math.round(target.suspicion.total)}</span><small>/ 100 suspicion</small></div>
+        <div class="investigation-interpretation"><div class="text-xs text-muted">INTERPRETATION</div><div class="font-medium">${escapeHtml(target.interpretation || 'Unknown pattern')}</div><div class="text-xs text-muted mt-2">${target.interpretation_confidence === null ? 'No interpretation confidence assigned' : `${Math.round(target.interpretation_confidence * 100)}% interpretation confidence`}</div></div>
+      </div>
+      ${target.endpoints.length ? `<div class="text-xs text-muted mt-4">Endpoints</div><div class="mono text-sm mt-2">${target.endpoints.map(escapeHtml).join(' &harr; ')}</div>` : ''}
+      <details class="investigation-why mt-4" open><summary>Why is this suspicious?</summary>
+        <div class="investigation-reasons">${target.suspicion.reasons.map(reason => `<div class="investigation-reason"><span class="investigation-reason-score">+${reason.score.toFixed(reason.score % 1 ? 1 : 0)}</span><div><div>${escapeHtml(reason.description)}</div>${Object.keys(reason.evidence).length ? `<div class="text-xs text-muted mt-2">${Object.entries(reason.evidence).map(([key, value]) => `${escapeHtml(key)}: ${escapeHtml(evidenceValue(value))}`).join(' - ')}</div>` : ''}</div></div>`).join('')}</div>
+      </details>
+      ${target.hypotheses.length ? `<div class="mt-4"><div class="text-xs text-muted">HYPOTHESES, NOT CONCLUSIONS</div>${target.hypotheses.map(item => `<div class="text-sm mt-2">${escapeHtml(item)}</div>`).join('')}</div>` : ''}
+      ${target.related_flags.length ? `<div class="panel mt-4"><div class="panel-header" style="color:var(--success)">${icons.flag} Recovered flag evidence</div><div class="panel-body mono">${target.related_flags.map(escapeHtml).join('<br>')}</div></div>` : ''}
+      ${target.wireshark_filter ? `<div class="mt-4"><div class="text-xs text-muted">WIRESHARK DISPLAY FILTER</div><div class="investigation-filter-box mt-2"><code>${escapeHtml(target.wireshark_filter)}</code><button class="btn btn-secondary btn-sm" data-copy-filter="${escapeHtml(target.id)}">${icons.copy} Copy Filter</button></div></div>` : '<div class="text-xs text-muted mt-4">No safe object-specific Wireshark filter could be generated.</div>'}
+      ${target.interesting_frames.length ? `<div class="mt-4"><div class="text-xs text-muted">INTERESTING FRAMES</div><div class="interesting-frames mt-2">${target.interesting_frames.map(frame => `<button class="interesting-frame" data-investigation-frame="${frame.frame_number}"><span>${frame.frame_number}</span><small>${escapeHtml(frame.description)}</small></button>`).join('')}</div></div>` : ''}
+      <div class="mt-4"><div class="text-xs text-muted">RECOMMENDED MANUAL INVESTIGATION</div><ol class="investigation-actions">${target.recommended_actions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}</ol></div>
+    </div>
+  </div>`;
 }
 
 function flattenProtocols(nodes: ProtocolHierarchyNode[], depth = 0): Array<{ node: ProtocolHierarchyNode; depth: number }> {
@@ -202,13 +324,14 @@ function renderConversations(result: NetworkAnalysisResponse, limit?: number): s
 
 function renderPackets(result: NetworkAnalysisResponse): string {
   const packets = result.packets.slice(0, MAX_TABLE_ROWS);
+  const selected = packets.find(packet => packet.number === selectedPacketNumber) || null;
   const limitNote = result.packet_records_truncated || result.packets.length > packets.length
     ? `Showing ${packets.length} bounded packet records; the backend reported additional packets.`
     : `${packets.length} packet records`;
   return `<div class="section"><div class="section-header"><div class="section-title">Packet metadata</div><span class="text-xs text-muted">${limitNote}</span></div>
     <table class="data-table"><thead><tr><th>No.</th><th>Time</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Length</th><th>Info</th></tr></thead><tbody>
-      ${packets.length ? packets.map(packet => `<tr><td class="mono">${packet.number}</td><td class="mono">${escapeHtml(formatTimestamp(packet.timestamp))}</td><td class="mono">${escapeHtml(packet.source || '—')}${packet.source_port === null ? '' : `:${packet.source_port}`}</td><td class="mono">${escapeHtml(packet.destination || '—')}${packet.destination_port === null ? '' : `:${packet.destination_port}`}</td><td>${escapeHtml(packet.displayed_protocol)}</td><td>${formatBytes(packet.wire_length)}</td><td class="text-muted">${escapeHtml(packet.info)}</td></tr>`).join('') : emptyTableRow(7, 'No packets were decoded from the capture.')}
-    </tbody></table></div>`;
+      ${packets.length ? packets.map(packet => `<tr class="clickable ${selected?.number === packet.number ? 'network-row-selected' : ''}" data-packet-frame="${packet.number}"><td class="mono">${packet.number}</td><td class="mono">${escapeHtml(formatTimestamp(packet.timestamp))}</td><td class="mono">${escapeHtml(packet.source || '—')}${packet.source_port === null ? '' : `:${packet.source_port}`}</td><td class="mono">${escapeHtml(packet.destination || '—')}${packet.destination_port === null ? '' : `:${packet.destination_port}`}</td><td>${escapeHtml(packet.displayed_protocol)}</td><td>${formatBytes(packet.wire_length)}</td><td class="text-muted">${escapeHtml(packet.info)}</td></tr>`).join('') : emptyTableRow(7, 'No packets were decoded from the capture.')}
+    </tbody></table></div>${selected ? `<div class="panel"><div class="panel-header">Frame ${selected.number} details</div><div class="panel-body"><div class="kv-list"><div class="kv-key">Timestamp</div><div class="kv-value mono">${escapeHtml(formatTimestamp(selected.timestamp))}</div><div class="kv-key">Endpoints</div><div class="kv-value mono">${escapeHtml(selected.source || 'unknown')}${selected.source_port === null ? '' : `:${selected.source_port}`} &rarr; ${escapeHtml(selected.destination || 'unknown')}${selected.destination_port === null ? '' : `:${selected.destination_port}`}</div><div class="kv-key">Protocol stack</div><div class="kv-value mono">${escapeHtml(selected.protocol_stack.join(' -> '))}</div><div class="kv-key">Payload</div><div class="kv-value">${formatBytes(selected.payload_length)}</div><div class="kv-key">Wireshark</div><div class="kv-value mono">frame.number == ${selected.number}</div></div></div></div>` : ''}`;
 }
 
 function renderApplication(result: NetworkAnalysisResponse): string {
@@ -218,7 +341,7 @@ function renderApplication(result: NetworkAnalysisResponse): string {
   return `<div class="section"><div class="section-header"><div class="section-title">DNS</div><span class="text-xs text-muted">${result.dns.length} records</span></div>
     <table class="data-table"><thead><tr><th>Frame</th><th>Kind</th><th>Name</th><th>Type</th><th>Answers</th></tr></thead><tbody>${dns.length ? dns.map(item => `<tr><td class="mono">${item.frame_number}</td><td>${escapeHtml(item.kind)}</td><td class="mono">${escapeHtml(item.name || '—')}</td><td>${escapeHtml(item.query_type || '—')}</td><td class="mono">${escapeHtml(item.answers.join(', ') || '—')}</td></tr>`).join('') : emptyTableRow(5, 'No DNS traffic was found.')}</tbody></table></div>
     <div class="section"><div class="section-header"><div class="section-title">HTTP</div><span class="text-xs text-muted">${result.http.length} messages</span></div>
-    <table class="data-table"><thead><tr><th>Frame</th><th>Kind</th><th>Method / Status</th><th>Host</th><th>URI</th><th>Content</th></tr></thead><tbody>${http.length ? http.map(item => `<tr><td class="mono">${item.frame_number}</td><td>${escapeHtml(item.kind)}</td><td>${escapeHtml(item.method || item.status_code || '—')}</td><td class="mono">${escapeHtml(item.host || '—')}</td><td class="mono">${escapeHtml(item.uri || '—')}</td><td>${escapeHtml(item.content_type || '—')}</td></tr>`).join('') : emptyTableRow(6, 'No HTTP traffic was found.')}</tbody></table></div>
+    <table class="data-table"><thead><tr><th>Frame</th><th>Kind</th><th>Method / Status</th><th>Host / URI</th><th>User-Agent</th><th>POST / response body</th></tr></thead><tbody>${http.length ? http.map(item => `<tr><td class="mono">${item.frame_number}</td><td>${escapeHtml(item.kind)}</td><td>${escapeHtml(item.method || item.status_code || '—')}</td><td class="mono">${escapeHtml(`${item.host || ''}${item.uri || ''}` || '—')}</td><td class="mono text-xs">${escapeHtml(item.user_agent || '—')}</td><td class="mono text-xs" style="white-space:pre-wrap;word-break:break-all">${escapeHtml(item.body_ascii_preview || item.content_type || '—')}${item.body_truncated ? '…' : ''}</td></tr>`).join('') : emptyTableRow(6, 'No HTTP traffic was found.')}</tbody></table></div>
     <div class="section"><div class="section-header"><div class="section-title">FTP</div><span class="text-xs text-muted">${result.ftp.length} messages</span></div>
     <table class="data-table"><thead><tr><th>Frame</th><th>Kind</th><th>Command / Code</th><th>Argument / Response</th><th>Stream</th></tr></thead><tbody>${ftp.length ? ftp.map(item => `<tr><td class="mono">${item.frame_number}</td><td>${escapeHtml(item.kind)}</td><td class="mono">${escapeHtml(item.command || item.response_code || '—')}</td><td class="mono">${escapeHtml(item.argument || item.response_text || '—')}</td><td>${item.stream_id === null ? '—' : `#${item.stream_id}`}</td></tr>`).join('') : emptyTableRow(5, 'No FTP control traffic was found.')}</tbody></table></div>
     <div class="section"><div class="section-header"><div class="section-title">Interesting ports</div><span class="text-xs text-muted">Evidence-based service hints</span></div>
@@ -226,15 +349,18 @@ function renderApplication(result: NetworkAnalysisResponse): string {
 }
 
 function renderStreams(result: NetworkAnalysisResponse): string {
-  const streams = result.tcp_streams.slice(0, MAX_TABLE_ROWS);
-  const selected = result.tcp_streams.find(stream => stream.stream_id === selectedStreamId) || null;
-  return `<div class="section"><div class="section-header"><div class="section-title">TCP stream discovery</div><span class="text-xs text-muted">Select a stream to inspect TShark reconstruction</span></div>
+  const streams: Array<{ protocol: 'tcp' | 'udp'; stream: TcpStream | UdpStream }> = [
+    ...result.tcp_streams.map(stream => ({ protocol: 'tcp' as const, stream })),
+    ...result.udp_streams.map(stream => ({ protocol: 'udp' as const, stream })),
+  ].slice(0, MAX_TABLE_ROWS);
+  const selected = streams.find(item => item.protocol === selectedStreamProtocol && item.stream.stream_id === selectedStreamId) || null;
+  return `<div class="section"><div class="section-header"><div class="section-title">TCP / UDP stream discovery</div><span class="text-xs text-muted">Select a stream to inspect chronological raw reconstruction</span></div>
     <table class="data-table"><thead><tr><th>Stream</th><th>Endpoint A</th><th>Endpoint B</th><th>Protocols</th><th>Packets</th><th>Wire bytes</th><th>Reconstructed</th><th>State</th></tr></thead><tbody>
-      ${streams.length ? streams.map(stream => `<tr class="clickable ${selected?.stream_id === stream.stream_id ? 'network-row-selected' : ''}" data-stream="${stream.stream_id}"><td class="mono">#${stream.stream_id}</td><td class="mono">${escapeHtml(stream.endpoint_a)}</td><td class="mono">${escapeHtml(stream.endpoint_b)}</td><td>${escapeHtml(stream.application_protocols.join(', ') || 'TCP')}</td><td>${stream.packet_count.toLocaleString()}</td><td>${formatBytes(stream.wire_bytes)}</td><td>${formatBytes(stream.reconstructed_bytes)}</td><td>${stream.reset_seen ? '<span class="badge badge-warning">RST</span>' : stream.fin_seen ? '<span class="badge badge-success">FIN</span>' : '<span class="badge badge-info">Observed</span>'}</td></tr>`).join('') : emptyTableRow(8, 'No TCP streams were discovered.')}
-    </tbody></table></div>${selected ? renderStreamViewer(selected) : '<div class="panel"><div class="panel-body text-sm text-muted">Select a reconstructed stream above.</div></div>'}`;
+      ${streams.length ? streams.map(({ protocol, stream }) => `<tr class="clickable ${selected?.protocol === protocol && selected.stream.stream_id === stream.stream_id ? 'network-row-selected' : ''}" data-stream="${stream.stream_id}" data-stream-protocol="${protocol}"><td class="mono">${protocol.toUpperCase()} #${stream.stream_id}</td><td class="mono">${escapeHtml(stream.endpoint_a)}</td><td class="mono">${escapeHtml(stream.endpoint_b)}</td><td>${escapeHtml(stream.application_protocols.join(', ') || protocol.toUpperCase())}</td><td>${stream.packet_count.toLocaleString()}</td><td>${formatBytes(stream.wire_bytes)}</td><td>${formatBytes(stream.reconstructed_bytes)}</td><td>${protocol === 'tcp' && (stream as TcpStream).reset_seen ? '<span class="badge badge-warning">RST</span>' : protocol === 'tcp' && (stream as TcpStream).fin_seen ? '<span class="badge badge-success">FIN</span>' : '<span class="badge badge-info">Observed</span>'}</td></tr>`).join('') : emptyTableRow(8, 'No TCP or UDP streams were discovered.')}
+    </tbody></table></div>${selected ? renderStreamViewer(selected.stream, selected.protocol) : '<div class="panel"><div class="panel-body text-sm text-muted">Select a reconstructed stream above.</div></div>'}`;
 }
 
-function decodeStreamPrefix(stream: TcpStream): Uint8Array {
+function decodeStreamPrefix(stream: TcpStream | UdpStream): Uint8Array {
   try {
     const binary = atob(stream.reconstructed_base64);
     const length = Math.min(binary.length, MAX_STREAM_RENDER_BYTES);
@@ -246,9 +372,9 @@ function decodeStreamPrefix(stream: TcpStream): Uint8Array {
   }
 }
 
-function renderStreamViewer(stream: TcpStream): string {
+function renderStreamViewer(stream: TcpStream | UdpStream, protocol: 'tcp' | 'udp'): string {
   const content = activeStreamView === 'hex' ? renderHexStream(stream) : renderAsciiStream(stream);
-  return `<div class="section"><div class="section-header"><div class="section-title">Reconstructed stream #${stream.stream_id}</div><span class="text-xs text-muted">${escapeHtml(stream.endpoint_a)} ↔ ${escapeHtml(stream.endpoint_b)}${stream.reconstruction_truncated ? ' · backend limit reached' : ''}</span></div>
+  return `<div class="section"><div class="section-header"><div class="section-title">Reconstructed ${protocol.toUpperCase()} stream #${stream.stream_id}</div><span class="text-xs text-muted">${escapeHtml(stream.endpoint_a)} ↔ ${escapeHtml(stream.endpoint_b)}${stream.reconstruction_truncated ? ' · backend limit reached' : ''}</span></div>
     <div class="raw-viewer"><div class="raw-viewer-toolbar"><div class="tab-bar" style="border:none;margin:0">
       <div class="tab-item ${activeStreamView === 'ascii' ? 'active' : ''}" data-stream-view="ascii" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">ASCII</div>
       <div class="tab-item ${activeStreamView === 'hex' ? 'active' : ''}" data-stream-view="hex" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">Hex</div>
@@ -256,7 +382,7 @@ function renderStreamViewer(stream: TcpStream): string {
     <div class="raw-viewer-content">${content}</div></div></div>`;
 }
 
-function renderAsciiStream(stream: TcpStream): string {
+function renderAsciiStream(stream: TcpStream | UdpStream): string {
   const bytes = decodeStreamPrefix(stream);
   const text = Array.from(bytes, byte => byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : '.').join('');
   if (!text) return '<div class="empty-state-text">No reconstructed payload bytes are available.</div>';
@@ -267,7 +393,7 @@ function renderAsciiStream(stream: TcpStream): string {
   }).join('');
 }
 
-function renderHexStream(stream: TcpStream): string {
+function renderHexStream(stream: TcpStream | UdpStream): string {
   const bytes = decodeStreamPrefix(stream);
   if (!bytes.length) return '<div class="empty-state-text">No reconstructed payload bytes are available.</div>';
   const lines: string[] = [];
@@ -280,13 +406,21 @@ function renderHexStream(stream: TcpStream): string {
   return `<pre>${lines.join('\n')}</pre>`;
 }
 
+function renderFlagCandidate(flag: NetworkFlagCandidate, result: NetworkAnalysisResponse): string {
+  const target = result.investigation_targets.find(item => item.related_flags.includes(flag.value));
+  return `<div class="panel mb-4"><div class="panel-header" style="color:var(--success)">${icons.flag} ${escapeHtml(flag.value)}</div><div class="panel-body"><div class="text-xs text-muted">${escapeHtml(flag.source)} · byte offset 0x${flag.offset.toString(16)} · ${Math.round(flag.confidence * 100)}% confidence${flag.frame_numbers.length ? ` · frames ${flag.frame_numbers.join(', ')}` : ''} · not automatically confirmed</div>${flag.decoding_steps.length ? `<div class="text-xs mt-4">Transforms: ${escapeHtml(flag.decoding_steps.join(' → '))}</div>` : ''}<div class="mono text-xs mt-4" style="word-break:break-all">${escapeHtml(flag.context)}</div>${target?.wireshark_filter ? `<div class="investigation-filter-box mt-4"><code>${escapeHtml(target.wireshark_filter)}</code><button class="btn btn-secondary btn-sm" data-copy-filter="${escapeHtml(target.id)}">${icons.copy} Copy Wireshark Filter</button></div>` : ''}</div></div>`;
+}
+
 function renderEvidence(result: NetworkAnalysisResponse): string {
-  return `<div class="section"><div class="section-header"><div class="section-title">Plaintext credential candidates</div><span class="text-xs text-muted">Sensitive evidence from decoded traffic</span></div>
+  return `<div class="section"><div class="section-header"><div class="section-title">Decoded payload and correlation insights</div><span class="text-xs text-muted">Bounded passive transforms with packet provenance</span></div>
+    ${result.insights.length ? result.insights.map(item => `<div class="panel mb-4"><div class="panel-header"><span class="badge badge-info">${escapeHtml(item.category)}</span> ${escapeHtml(item.title)}</div><div class="panel-body"><div class="text-xs text-muted">${escapeHtml(item.source)} · ${Math.round(item.confidence * 100)}% confidence${item.frame_numbers.length ? ` · frames ${item.frame_numbers.join(', ')}` : ''}${item.stream_id === null ? '' : ` · stream #${item.stream_id}`}</div>${item.decoding_steps.length ? `<div class="text-xs mt-4">Transforms: ${escapeHtml(item.decoding_steps.join(' → '))}</div>` : ''}<pre class="mono text-xs mt-4" style="white-space:pre-wrap;word-break:break-all">${escapeHtml(item.value)}</pre></div></div>`).join('') : '<div class="text-sm text-muted">No encoded payload, covert-channel, broadcast, or cross-protocol correlation insight was detected.</div>'}
+    </div>
+    <div class="section"><div class="section-header"><div class="section-title">Plaintext credential candidates</div><span class="text-xs text-muted">Sensitive evidence from decoded traffic</span></div>
     <table class="data-table"><thead><tr><th>Protocol</th><th>Username</th><th>Secret</th><th>Stream</th><th>Confidence</th><th>Source</th></tr></thead><tbody>${result.plaintext_credentials.length ? result.plaintext_credentials.map(item => `<tr><td>${escapeHtml(item.protocol)}</td><td class="mono">${escapeHtml(item.username || '—')}</td><td class="mono" style="color:var(--warning)">${escapeHtml(item.secret)}</td><td>${item.stream_id === null ? '—' : `#${item.stream_id}`}</td><td>${Math.round(item.confidence * 100)}%</td><td class="text-muted">${escapeHtml(item.source)}</td></tr>`).join('') : emptyTableRow(6, 'No plaintext credential pattern was detected.')}</tbody></table></div>
     <div class="section"><div class="section-header"><div class="section-title">Transferred files</div><span class="text-xs text-muted">Temporary TShark exports are not retained by the backend</span></div>
-    <table class="data-table"><thead><tr><th>Name</th><th>Protocol</th><th>Size</th><th>SHA-256</th><th>Content</th></tr></thead><tbody>${result.transferred_files.length ? result.transferred_files.map(item => `<tr><td class="mono">${escapeHtml(item.source_name)}</td><td>${escapeHtml(item.protocol)}</td><td>${formatBytes(item.size)}</td><td class="mono" style="word-break:break-all">${item.sha256}</td><td><button class="btn btn-secondary btn-sm" data-file-id="${escapeHtml(item.artifact_id)}">${icons.download} Download${item.content_truncated ? ' preview' : ''}</button></td></tr>`).join('') : emptyTableRow(5, 'No HTTP or FTP transferred object was exported.')}</tbody></table></div>
+    <table class="data-table"><thead><tr><th>Name</th><th>Protocol</th><th>Size</th><th>SHA-256</th><th>Content</th></tr></thead><tbody>${result.transferred_files.length ? result.transferred_files.map(item => `<tr><td class="mono">${escapeHtml(item.source_name)}</td><td>${escapeHtml(item.protocol)}</td><td>${formatBytes(item.size)}</td><td class="mono" style="word-break:break-all">${item.sha256}</td><td><button class="btn btn-secondary btn-sm" data-file-id="${escapeHtml(item.artifact_id)}">${icons.download} Download${item.content_truncated ? ' preview' : ''}</button></td></tr>`).join('') : emptyTableRow(5, 'No HTTP or FTP object was exported.')}</tbody></table></div>
     <div class="section"><div class="section-header"><div class="section-title">Flag candidates</div><span class="text-xs text-muted">Regex candidates require analyst review</span></div>
-      ${result.flags.length ? result.flags.map(flag => `<div class="panel mb-4"><div class="panel-header" style="color:var(--success)">${icons.flag} ${escapeHtml(flag.value)}</div><div class="panel-body"><div class="text-xs text-muted">${escapeHtml(flag.source)} · byte offset 0x${flag.offset.toString(16)} · ${Math.round(flag.confidence * 100)}% confidence · not automatically confirmed</div><div class="mono text-xs mt-4" style="word-break:break-all">${escapeHtml(flag.context)}</div></div></div>`).join('') : '<div class="text-sm text-muted">No configured flag pattern matched reconstructed streams or transferred files.</div>'}
+      ${result.flags.length ? result.flags.map(flag => renderFlagCandidate(flag, result)).join('') : '<div class="text-sm text-muted">No configured flag pattern matched packet payloads, reconstructed streams, decoded evidence, or transferred files.</div>'}
     </div>`;
 }
 
@@ -304,6 +438,9 @@ function bindEvents(): void {
   const dropZone = document.getElementById('network-drop-zone');
   select?.addEventListener('click', () => input?.click());
   input?.addEventListener('change', () => selectCapture(input.files?.[0] || null));
+  document.getElementById('network-flag-prefix')?.addEventListener('input', event => {
+    customFlagPrefix = (event.target as HTMLInputElement).value;
+  });
   run?.addEventListener('click', () => void runAnalysis());
   dropZone?.addEventListener('click', () => input?.click());
   dropZone?.addEventListener('keydown', event => {
@@ -329,9 +466,43 @@ function bindEvents(): void {
       renderShell();
     });
   });
+  document.querySelectorAll<HTMLButtonElement>('[data-investigation-filter]').forEach(button => {
+    button.addEventListener('click', () => {
+      investigationFilter = (button.dataset.investigationFilter as InvestigationFilter | undefined) || 'all';
+      selectedTargetId = null;
+      renderShell();
+    });
+  });
+  document.getElementById('investigation-sort')?.addEventListener('change', event => {
+    investigationSort = (event.target as HTMLSelectElement).value as InvestigationSort;
+    renderShell();
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-investigation-target]').forEach(button => {
+    button.addEventListener('click', () => {
+      selectedTargetId = button.dataset.investigationTarget || null;
+      renderShell();
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-copy-filter]').forEach(button => {
+    button.addEventListener('click', () => void copyInvestigationFilter(button.dataset.copyFilter || ''));
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-investigation-frame]').forEach(button => {
+    button.addEventListener('click', () => {
+      selectedPacketNumber = Number(button.dataset.investigationFrame);
+      activeTab = 'packets';
+      renderShell();
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[data-packet-frame]').forEach(row => {
+    row.addEventListener('click', () => {
+      selectedPacketNumber = Number(row.dataset.packetFrame);
+      renderShell();
+    });
+  });
   document.querySelectorAll<HTMLElement>('[data-stream]').forEach(row => {
     row.addEventListener('click', () => {
       selectedStreamId = Number(row.dataset.stream);
+      selectedStreamProtocol = row.dataset.streamProtocol === 'udp' ? 'udp' : 'tcp';
       activeStreamView = 'ascii';
       renderShell();
     });
@@ -348,12 +519,18 @@ function bindEvents(): void {
 }
 
 function selectCapture(file: File | null): void {
+  stopProgressPolling();
   activeRequest?.abort();
   activeRequest = null;
   analyzing = false;
   selectedFile = file;
   latestResponse = null;
   selectedStreamId = null;
+  selectedStreamProtocol = 'tcp';
+  selectedTargetId = null;
+  selectedPacketNumber = null;
+  investigationFilter = 'all';
+  investigationSort = 'suspicion';
   activeTab = 'overview';
   statusIsError = false;
   if (!file) {
@@ -377,10 +554,19 @@ async function runAnalysis(): Promise<void> {
   statusIsError = false;
   statusMessage = 'Uploading the saved capture and waiting for TShark analysis…';
   renderShell();
+  const progressId = crypto.randomUUID();
+  startProgressPolling(progressId, controller.signal);
   try {
-    latestResponse = await analyzePcapFile(selectedFile, controller.signal);
-    selectedStreamId = latestResponse.tcp_streams[0]?.stream_id ?? null;
-    activeTab = 'overview';
+    latestResponse = await analyzePcapFile(
+      selectedFile,
+      controller.signal,
+      customFlagPrefix,
+      progressId,
+    );
+    selectedStreamProtocol = latestResponse.tcp_streams.length ? 'tcp' : 'udp';
+    selectedStreamId = latestResponse.tcp_streams[0]?.stream_id ?? latestResponse.udp_streams[0]?.stream_id ?? null;
+    selectedTargetId = latestResponse.investigation_targets[0]?.id ?? null;
+    activeTab = latestResponse.investigation_summary.outcome === 'solved' ? 'overview' : 'investigate';
     statusMessage = `Analysis ${latestResponse.analysis_id}`;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -391,12 +577,59 @@ async function runAnalysis(): Promise<void> {
         ? 'TShark is unavailable on the backend. Install TShark and add it to PATH.'
         : error instanceof Error ? error.message : 'PCAP analysis failed.';
   } finally {
+    stopProgressPolling();
     if (activeRequest === controller) {
       activeRequest = null;
       analyzing = false;
       if (document.getElementById('network-page')) renderShell();
     }
   }
+}
+
+function startProgressPolling(progressId: string, signal: AbortSignal): void {
+  stopProgressPolling();
+  const poll = async (): Promise<void> => {
+    if (signal.aborted) return;
+    try {
+      const progress = await getPcapAnalysisProgress(progressId, signal);
+      statusIsError = progress.status === 'failed';
+      statusMessage = `${progress.detail} · ${(progress.elapsed_ms / 1000).toFixed(1)}s elapsed`;
+      const status = document.getElementById('network-status');
+      if (status) {
+        status.textContent = statusMessage;
+        status.style.color = statusIsError ? 'var(--error)' : '';
+      }
+      if (progress.status === 'complete' || progress.status === 'failed') stopProgressPolling();
+    } catch (error) {
+      // The POST and first poll can race before the progress record is registered.
+      if (!(error instanceof ApiError && error.status === 404) && !signal.aborted) {
+        statusMessage = 'Analysis is running; live progress is temporarily unavailable.';
+      }
+    }
+  };
+  void poll();
+  progressPollTimer = window.setInterval(() => void poll(), 600);
+}
+
+function stopProgressPolling(): void {
+  if (progressPollTimer !== null) {
+    window.clearInterval(progressPollTimer);
+    progressPollTimer = null;
+  }
+}
+
+async function copyInvestigationFilter(targetId: string): Promise<void> {
+  const target = latestResponse?.investigation_targets.find(item => item.id === targetId);
+  if (!target?.wireshark_filter) return;
+  try {
+    await navigator.clipboard.writeText(target.wireshark_filter);
+    statusIsError = false;
+    statusMessage = 'Wireshark display filter copied to the clipboard.';
+  } catch {
+    statusIsError = true;
+    statusMessage = 'Clipboard access was denied. Select and copy the displayed filter manually.';
+  }
+  renderShell();
 }
 
 function exportResult(): void {

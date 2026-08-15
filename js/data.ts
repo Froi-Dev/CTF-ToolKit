@@ -1,87 +1,4 @@
-﻿// CTFKit Mock Data
-export const activeCase = {
-  id: 'case-004',
-  name: 'Hack4Gov 2026',
-  challenge: 'Challenge 04 — Shadow Protocol',
-  status: 'open',
-  created: '2026-08-14T08:30:00Z',
-  files: 12,
-  findings: 23,
-  flags: 3,
-  runningJobs: 2,
-};
-
-export const cases = [
-  { id: 'case-004', name: 'Hack4Gov 2026', challenge: 'Challenge 04 — Shadow Protocol', status: 'open', files: 12, findings: 23, flags: 3, created: '2026-08-14T08:30:00Z' },
-  { id: 'case-003', name: 'Hack4Gov 2026', challenge: 'Challenge 03 — Hidden Layers', status: 'open', files: 8, findings: 14, flags: 2, created: '2026-08-13T14:00:00Z' },
-  { id: 'case-002', name: 'CyberStorm CTF', challenge: 'Forensics — Memory Lane', status: 'closed', files: 5, findings: 9, flags: 1, created: '2026-08-10T09:00:00Z' },
-  { id: 'case-001', name: 'CyberStorm CTF', challenge: 'Web — Broken Auth', status: 'closed', files: 3, findings: 6, flags: 1, created: '2026-08-10T08:00:00Z' },
-];
-
-export const artifacts = [
-  { id: 'a1', name: 'capture.pcap', type: 'PCAP', size: '14.2 MB', analyzer: 'Network', status: 'complete', findings: 8, hash: 'a3f2b8c1' },
-  { id: 'a2', name: 'memory.raw', type: 'Memory Dump', size: '256 MB', analyzer: 'Forensics', status: 'running', findings: 5, hash: 'e7d4a912' },
-  { id: 'a3', name: 'suspicious.png', type: 'Image', size: '342 KB', analyzer: 'Stego', status: 'complete', findings: 2, hash: 'b1c8f3e5' },
-  { id: 'a4', name: 'filesystem.dd', type: 'Disk Image', size: '512 MB', analyzer: 'Forensics', status: 'queued', findings: 0, hash: '9f2a7b4c' },
-  { id: 'a5', name: 'challenge.zip', type: 'Archive', size: '2.1 MB', analyzer: 'Auto', status: 'complete', findings: 4, hash: 'c5d8e1f2' },
-  { id: 'a6', name: 'crackme', type: 'ELF Binary', size: '18 KB', analyzer: 'Reverse Eng.', status: 'complete', findings: 3, hash: 'd3a6b9c0' },
-  { id: 'a7', name: 'traffic.log', type: 'Log File', size: '890 KB', analyzer: 'Network', status: 'complete', findings: 1, hash: 'f1e4d7a8' },
-];
-
-export const findings = [
-  { id: 'f1', severity: 'high', title: 'FTP credentials discovered in cleartext', source: 'capture.pcap', confidence: 95, module: 'Network', timestamp: '2026-08-14T10:42:18Z' },
-  { id: 'f2', severity: 'high', title: 'Possible flag: CTF{sh4d0w_pr0t0c0l_br34ch}', source: 'challenge.zip', confidence: 92, module: 'Auto Triage', timestamp: '2026-08-14T10:38:05Z' },
-  { id: 'f3', severity: 'medium', title: 'Embedded ZIP archive detected in PNG', source: 'suspicious.png', confidence: 88, module: 'Stego', timestamp: '2026-08-14T10:35:22Z' },
-  { id: 'f4', severity: 'medium', title: 'Suspicious DNS TXT record queries', source: 'capture.pcap', confidence: 78, module: 'Network', timestamp: '2026-08-14T10:30:44Z' },
-  { id: 'f5', severity: 'low', title: 'Metadata username: admin_shadow', source: 'suspicious.png', confidence: 100, module: 'Stego', timestamp: '2026-08-14T10:28:11Z' },
-  { id: 'f6', severity: 'high', title: 'Password hash found in memory dump', source: 'memory.raw', confidence: 85, module: 'Forensics', timestamp: '2026-08-14T10:25:33Z' },
-  { id: 'f7', severity: 'medium', title: 'Base64-encoded payload in HTTP response', source: 'capture.pcap', confidence: 82, module: 'Network', timestamp: '2026-08-14T10:22:17Z' },
-  { id: 'f8', severity: 'low', title: 'Non-standard HTTP headers detected', source: 'capture.pcap', confidence: 65, module: 'Network', timestamp: '2026-08-14T10:20:09Z' },
-  { id: 'f9', severity: 'info', title: 'Binary compiled with GCC 11.2', source: 'crackme', confidence: 100, module: 'Reverse Eng.', timestamp: '2026-08-14T10:15:44Z' },
-  { id: 'f10', severity: 'medium', title: 'Deleted file recovered: secret.txt', source: 'filesystem.dd', confidence: 90, module: 'Forensics', timestamp: '2026-08-14T10:12:30Z' },
-  { id: 'f11', severity: 'high', title: 'Hardcoded API key in binary strings', source: 'crackme', confidence: 88, module: 'Reverse Eng.', timestamp: '2026-08-14T10:08:55Z' },
-  { id: 'f12', severity: 'low', title: 'EXIF GPS coordinates present', source: 'suspicious.png', confidence: 100, module: 'Stego', timestamp: '2026-08-14T10:05:18Z' },
-];
-
-export const timeline = [
-  { time: '2026-08-14T10:42:18Z', event: 'FTP credentials recovered from PCAP stream', type: 'success', module: 'Network' },
-  { time: '2026-08-14T10:38:05Z', event: 'Flag candidate discovered in extracted archive', type: 'success', module: 'Auto Triage' },
-  { time: '2026-08-14T10:35:22Z', event: 'Hidden ZIP archive detected in suspicious.png', type: 'warning', module: 'Stego' },
-  { time: '2026-08-14T10:30:44Z', event: 'PCAP analysis completed — 8 findings', type: 'info', module: 'Network' },
-  { time: '2026-08-14T10:28:11Z', event: 'Metadata extraction complete for suspicious.png', type: 'info', module: 'Stego' },
-  { time: '2026-08-14T10:25:33Z', event: 'Memory dump analysis started', type: 'info', module: 'Forensics' },
-  { time: '2026-08-14T10:22:00Z', event: 'Archive challenge.zip extracted — 4 files', type: 'info', module: 'Auto Triage' },
-  { time: '2026-08-14T10:18:30Z', event: 'Files uploaded to case', type: 'info', module: 'System' },
-  { time: '2026-08-14T10:15:44Z', event: 'Binary crackme identified as ELF x86_64', type: 'info', module: 'Reverse Eng.' },
-  { time: '2026-08-14T10:12:30Z', event: 'Deleted file secret.txt recovered', type: 'warning', module: 'Forensics' },
-];
-
-export const evidenceGraph = {
-  nodes: [
-    { id: 'n1', label: 'capture.pcap', type: 'artifact', x: 60, y: 50 },
-    { id: 'n2', label: 'FTP creds', type: 'finding', x: 220, y: 20 },
-    { id: 'n3', label: 'DNS TXT data', type: 'finding', x: 220, y: 80 },
-    { id: 'n4', label: 'memory.raw', type: 'artifact', x: 60, y: 140 },
-    { id: 'n5', label: 'password hash', type: 'finding', x: 220, y: 140 },
-    { id: 'n6', label: 'challenge.zip', type: 'artifact', x: 380, y: 80 },
-    { id: 'n7', label: 'secret.txt', type: 'file', x: 540, y: 50 },
-    { id: 'n8', label: 'CTF{...flag}', type: 'flag', x: 700, y: 50 },
-    { id: 'n9', label: 'suspicious.png', type: 'artifact', x: 380, y: 140 },
-    { id: 'n10', label: 'embedded.zip', type: 'file', x: 540, y: 140 },
-  ],
-  edges: [
-    { from: 'n1', to: 'n2' },
-    { from: 'n1', to: 'n3' },
-    { from: 'n4', to: 'n5' },
-    { from: 'n5', to: 'n6' },
-    { from: 'n3', to: 'n6' },
-    { from: 'n6', to: 'n7' },
-    { from: 'n7', to: 'n8' },
-    { from: 'n9', to: 'n10' },
-    { from: 'n10', to: 'n7' },
-  ],
-};
-
+﻿// Shared data for modules that have not yet been connected to backend endpoints.
 export const forensicsData = {
   fileTree: [
     { path: '/', type: 'dir', children: [
@@ -264,7 +181,6 @@ export const wordlistsData = [
 // SVG Icons (inline, compact)
 export const icons = {
   dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
-  cases: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
   triage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
   web: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
   crypto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',

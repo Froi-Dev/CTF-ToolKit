@@ -2,6 +2,10 @@ class DecoderInputError(ValueError):
     """Raised when decoder-specific request options are invalid."""
 
 
+class CryptoInputError(ValueError):
+    """Raised when cryptographic material or parameters cannot be used safely."""
+
+
 class ArtifactTooLargeError(ValueError):
     """Raised when an upload crosses the configured artifact-size boundary."""
 
