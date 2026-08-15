@@ -1,0 +1,67 @@
+===================================================================
+                CTF-ToolKit Server Startup Guide
+===================================================================
+
+-------------------------------------------------------------------
+1. FRONTEND SERVER (Vite / React/TS)
+-------------------------------------------------------------------
+Location: Workspace Root (CTF-ToolKit\)
+
+- Prerequisites (first time setup):
+  npm install
+
+- Standard Start Command:
+  npm run dev
+
+- Alternative / Custom Host & Port:
+  npx vite --host --port 3000
+
+- Production Preview:
+  npm run build
+  npm run preview
+
+
+-------------------------------------------------------------------
+2. BACKEND SERVER (FastAPI / Uvicorn)
+-------------------------------------------------------------------
+Location: Backend Directory (CTF-ToolKit\backend)
+
+- Prerequisites (first time setup):
+  cd backend
+  pip install -e ".[test]"
+  # Or with Python Launcher on Windows:
+  py -3.12 -m pip install -e ".[test]"
+
+- Standard Start Command (From backend directory):
+  uvicorn app.main:app --reload
+
+  # Or using python module:
+  python -m uvicorn app.main:app --reload
+
+  # Or using Windows Python launcher:
+  py -3.12 -m uvicorn app.main:app --reload
+
+- Custom Host & Port Example:
+  uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+
+
+-------------------------------------------------------------------
+3. RUNNING BOTH CONCURRENTLY (PowerShell / Terminal Setup)
+-------------------------------------------------------------------
+
+Terminal 1 (Frontend):
+  cd c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit
+  npm run dev
+
+Terminal 2 (Backend):
+  cd c:\Users\dever\OneDrive\Desktop\CTF\CTF-ToolKit\backend
+  wireshark-4.2.2-x64.exe
+
+
+-------------------------------------------------------------------
+4. DEFAULT ENDPOINTS & URLS
+-------------------------------------------------------------------
+- Frontend Application:  http://localhost:5173
+- Backend API Base:       http://127.0.0.1:8000/api/v1
+- Interactive API Docs:   http://127.0.0.1:8000/docs
+===================================================================
