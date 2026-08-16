@@ -50,8 +50,10 @@ export const navigationSections: NavigationSection[] = [
     label: 'Analysis',
     items: [
       { id: 'web', label: 'Web', icon: 'web', children: [
-        child('web', 'passive', 'Passive Analysis'),
-        child('web', 'active', 'Active Recon'),
+        child('web', 'scanner', 'Web Recon Scanner'),
+      ] },
+      { id: 'network', label: 'Network / PCAP', icon: 'network', children: [
+        child('network', 'analyzer', 'Network Analyzer'),
       ] },
       { id: 'crypto', label: 'Cryptography', icon: 'crypto', children: [
         child('crypto', 'decoder', 'Decoder'),
@@ -60,11 +62,8 @@ export const navigationSections: NavigationSection[] = [
       { id: 'forensics', label: 'Forensics', icon: 'forensics', children: [
         child('forensics', 'files', 'File / Archive Analysis'),
         child('forensics', 'image-steganography', 'Image / Steganography', 'stego', 'overview'),
+        child('forensics', 'audio', 'Audio Analyzer', 'audio', 'audio'),
         child('forensics', 'disk-partition', 'Disk / Partition'),
-        child('forensics', 'other', 'Other Forensics'),
-      ] },
-      { id: 'network', label: 'Network / PCAP', icon: 'network', children: [
-        child('network', 'analyzer', 'Network Analyzer'),
       ] },
       { id: 'osint', label: 'OSINT', icon: 'osint', children: [
         child('osint', 'website', 'Website OSINT'),
@@ -76,18 +75,6 @@ export const navigationSections: NavigationSection[] = [
         child('reverse', 'sections', 'Sections / Imports'),
         child('reverse', 'strings', 'Strings'),
         child('reverse', 'disasm', 'Disassembly'),
-      ] },
-      { id: 'binary', label: 'Binary / Pwn', icon: 'binary', children: [
-        child('binary', 'protections', 'Protections'),
-        child('binary', 'vulnerabilities', 'Vulnerabilities'),
-        child('binary', 'gadgets', 'ROP Gadgets'),
-        child('binary', 'exploit', 'Exploit Template'),
-      ] },
-      { id: 'malware', label: 'Malware Analysis', icon: 'malware', children: [
-        child('malware', 'overview', 'Sample Overview'),
-        child('malware', 'indicators', 'Indicators'),
-        child('malware', 'behavior', 'Behavior'),
-        child('malware', 'static', 'Static Analysis'),
       ] },
     ],
   },
@@ -103,17 +90,6 @@ export const navigationSections: NavigationSection[] = [
         child('wordlists', 'library', 'Available Lists'),
         child('wordlists', 'generator', 'Custom Generator'),
       ] },
-      { id: 'reports', label: 'Reports', icon: 'reports', children: [
-        child('reports', 'generated', 'Generated Reports'),
-        child('reports', 'create', 'Create Report'),
-      ] },
-      { id: 'settings', label: 'Settings', icon: 'settings', children: [
-        child('settings', 'general', 'General'),
-        child('settings', 'analyzers', 'Analyzers'),
-        child('settings', 'integrations', 'Integrations'),
-        child('settings', 'backend', 'Backend'),
-        child('settings', 'appearance', 'Appearance'),
-      ] },
     ],
   },
 ];
@@ -123,15 +99,14 @@ const routes = new Map(items.flatMap(item => item.children.map(itemChild => [ite
 
 const legacyRoutes: Record<string, string> = {
   dashboard: 'dashboard/findings', autotriage: 'autotriage/new',
-  web: 'web/passive', crypto: 'crypto/decoder', forensics: 'forensics/files',
+  web: 'web/scanner', 'web/passive': 'web/scanner', 'web/active': 'web/scanner',
+  crypto: 'crypto/decoder', forensics: 'forensics/files',
   stego: 'forensics/image-steganography', network: 'network/analyzer',
   'network/overview': 'network/analyzer', 'network/protocols': 'network/analyzer',
   'network/streams': 'network/analyzer', osint: 'osint/website',
   'osint/investigation': 'osint/website', 'osint/infrastructure': 'osint/website',
   'osint/identities': 'osint/username', 'osint/search': 'osint/google-dorks',
-  reverse: 'reverse/overview', binary: 'binary/protections', malware: 'malware/overview',
-  hashes: 'hashes/identify', wordlists: 'wordlists/library', reports: 'reports/generated',
-  settings: 'settings/general',
+  reverse: 'reverse/overview', hashes: 'hashes/identify', wordlists: 'wordlists/library',
 };
 
 export function resolveNavigation(rawPath: string): ResolvedNavigation {

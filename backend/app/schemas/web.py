@@ -21,6 +21,15 @@ class WebAnalysisRequest(BaseModel):
     fetch_robots: bool = True
     fetch_sitemap: bool = True
     fetch_javascript: bool = True
+    source_map_discovery: bool = True
+    crawl_same_origin: bool = True
+    directory_discovery: bool = True
+    api_discovery: bool = True
+    sensitive_file_checks: bool = True
+    follow_redirects: bool = True
+    scan_depth: int = Field(default=2, ge=0, le=4)
+    max_pages: int = Field(default=25, ge=1, le=50)
+    authenticated_url: HttpUrl | None = None
     compare_without_auth: bool = False
     timeout_ms: int = Field(default=8_000, ge=1_000, le=15_000)
 
@@ -28,6 +37,8 @@ class WebAnalysisRequest(BaseModel):
     def require_authorization(self) -> "WebAnalysisRequest":
         if not self.authorization_confirmed:
             raise ValueError("authorization_confirmed must be true for active web analysis")
+        if self.authenticated_url is not None and not (self.headers or self.cookies):
+            raise ValueError("authenticated_url requires a supplied cookie or authentication header")
         return self
 
     @field_validator("headers")
@@ -88,6 +99,8 @@ class CookieRecord(BaseModel):
     name: str
     value: str
     source: Literal["request", "response"]
+    url: str
+    authenticated: bool = False
     domain: str | None = None
     path: str | None = None
     secure: bool = False
@@ -98,7 +111,7 @@ class CookieRecord(BaseModel):
 
 
 class DiscoveryDocument(BaseModel):
-    kind: Literal["robots", "sitemap", "javascript", "source-map"]
+    kind: Literal["auth-check", "redirect", "robots", "sitemap", "javascript", "source-map", "page", "sensitive", "wildcard-probe"]
     url: str
     status_code: int | None
     content_type: str | None = None
@@ -127,12 +140,103 @@ class EndpointRecord(BaseModel):
     method: str
     parameters: list[str]
     sources: list[str]
+    priority: int = Field(default=20, ge=0, le=100)
+    reason: str = "Discovered during reconnaissance."
 
 
 class ParameterRecord(BaseModel):
     name: str
     locations: list[Literal["query", "form", "javascript", "path"]]
     sources: list[str]
+
+
+class FormFieldRecord(BaseModel):
+    name: str
+    input_type: str
+    value: str | None = None
+
+
+class FormRecord(BaseModel):
+    page_url: str
+    action: str
+    method: str
+    enctype: str | None = None
+    fields: list[FormFieldRecord] = Field(default_factory=list)
+
+
+class AttackSurfaceRecord(BaseModel):
+    parameter: str
+    endpoint: str
+    method: str
+    location: Literal["query", "form", "javascript", "path"]
+    input_type: str | None = None
+    potential_category: str
+
+
+class PageRecord(BaseModel):
+    url: str
+    status_code: int
+    content_type: str | None = None
+    depth: int = Field(ge=0)
+    source: str
+    parent_url: str | None = None
+
+
+class WebFlagCandidate(BaseModel):
+    value: str
+    pattern: str
+    source: str
+    location: str
+    context: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    source_type: str = "content:flag"
+    url: str
+    authenticated: bool = False
+    state: Literal["candidate"] = "candidate"
+
+
+class NotableFinding(BaseModel):
+    id: str
+    score: int = Field(ge=0, le=100)
+    severity: Literal["critical", "high", "medium", "low", "info"]
+    title: str
+    evidence: list[str]
+    location: str
+    why_it_matters: str
+    suggested_investigation: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    sources: list[str] = Field(default_factory=list)
+    url: str
+    source_type: str
+    context: str
+    authenticated: bool = False
+
+
+class TargetSummary(BaseModel):
+    url: str
+    final_url: str
+    server: str | None = None
+    technologies: list[str] = Field(default_factory=list)
+    pages_analyzed: int = Field(ge=0)
+    endpoints_discovered: int = Field(ge=0)
+    javascript_files_analyzed: int = Field(ge=0)
+
+
+class RawEvidenceRecord(BaseModel):
+    kind: str
+    url: str
+    status_code: int | None
+    headers: list[HeaderRecord] = Field(default_factory=list)
+    body_preview: str
+    truncated: bool = False
+    authenticated: bool = False
+
+
+class ReconTreeNode(BaseModel):
+    url: str
+    parent_url: str | None = None
+    source: str
+    depth: int = Field(ge=0)
 
 
 class TechnologyRecord(BaseModel):
@@ -159,6 +263,10 @@ class AuthenticationInspection(BaseModel):
 
 class JwtRecord(BaseModel):
     source: str
+    source_type: str
+    url: str
+    cookie_name: str | None = None
+    authenticated: bool = False
     token_preview: str
     algorithm: str | None
     token_type: str | None
@@ -188,6 +296,7 @@ class WebLimits(BaseModel):
     max_documents: int
     max_javascript_files: int
     max_redirects: int
+    max_pages: int = 50
 
 
 class WebAnalysisResponse(BaseModel):
@@ -205,9 +314,18 @@ class WebAnalysisResponse(BaseModel):
     scripts: list[ScriptRecord]
     endpoints: list[EndpointRecord]
     parameters: list[ParameterRecord]
+    forms: list[FormRecord] = Field(default_factory=list)
+    attack_surface: list[AttackSurfaceRecord] = Field(default_factory=list)
+    pages: list[PageRecord] = Field(default_factory=list)
     technologies: list[TechnologyRecord]
     authentication: AuthenticationInspection
     jwts: list[JwtRecord]
     comparison: ResponseComparison
+    target_summary: TargetSummary
+    flag_status: Literal["found", "possible_lead", "not_found"]
+    flags: list[WebFlagCandidate] = Field(default_factory=list)
+    notable_findings: list[NotableFinding] = Field(default_factory=list)
+    recon_tree: list[ReconTreeNode] = Field(default_factory=list)
+    raw_evidence: list[RawEvidenceRecord] = Field(default_factory=list)
     warnings: list[str]
     limits: WebLimits

@@ -5,10 +5,14 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.core.errors import (
+    AnalysisBusyError,
+    AnalysisFailedError,
+    AnalysisResourceLimitError,
     ArtifactTooLargeError,
     CryptoInputError,
     DecoderInputError,
     InvalidArtifactError,
+    InvalidAuthenticationSessionError,
     InvalidOsintTargetError,
     ToolExecutionError,
     ToolNotAvailableError,
@@ -25,6 +29,57 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.include_router(api_router, prefix="/api/v1")
+
+
+@app.exception_handler(AnalysisBusyError)
+async def analysis_busy_handler(
+    request: Request, exc: AnalysisBusyError
+) -> JSONResponse:
+    del request
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": {
+                "code": "ANALYSIS_BUSY",
+                "message": str(exc),
+                "details": {"analyzer": exc.analyzer},
+            }
+        },
+    )
+
+
+@app.exception_handler(AnalysisFailedError)
+async def analysis_failed_handler(
+    request: Request, exc: AnalysisFailedError
+) -> JSONResponse:
+    del request
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "ANALYSIS_FAILED",
+                "message": str(exc),
+                "details": {"analyzer": exc.analyzer},
+            }
+        },
+    )
+
+
+@app.exception_handler(AnalysisResourceLimitError)
+async def analysis_resource_limit_handler(
+    request: Request, exc: AnalysisResourceLimitError
+) -> JSONResponse:
+    del request
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "ANALYSIS_RESOURCE_LIMIT",
+                "message": str(exc),
+                "details": {"analyzer": exc.analyzer},
+            }
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)
@@ -181,6 +236,23 @@ async def web_request_error_handler(
         content={
             "error": {
                 "code": "WEB_REQUEST_TIMEOUT" if exc.timed_out else "WEB_REQUEST_FAILED",
+                "message": str(exc),
+                "details": {},
+            }
+        },
+    )
+
+
+@app.exception_handler(InvalidAuthenticationSessionError)
+async def invalid_authentication_session_handler(
+    request: Request, exc: InvalidAuthenticationSessionError
+) -> JSONResponse:
+    del request
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "AUTH_SESSION_INVALID",
                 "message": str(exc),
                 "details": {},
             }

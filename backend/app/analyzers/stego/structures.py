@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import zlib
 from dataclasses import dataclass
 
@@ -14,6 +15,60 @@ class StructureResult:
     logical_end: int | None
     warnings: tuple[str, ...]
     truncated: bool
+    text_entries: tuple[tuple[str, str], ...] = ()
+
+
+_KNOWN_PNG_CHUNKS = {
+    "IHDR", "PLTE", "IDAT", "IEND", "tEXt", "zTXt", "iTXt", "eXIf",
+    "bKGD", "cHRM", "gAMA", "hIST", "iCCP", "pHYs", "sBIT", "sPLT",
+    "sRGB", "tIME", "tRNS",
+}
+_MAX_TEXT_OUTPUT = 64 * 1024
+
+
+def _bounded_zlib(data: bytes) -> bytes | None:
+    try:
+        decompressor = zlib.decompressobj()
+        output = decompressor.decompress(data, _MAX_TEXT_OUTPUT + 1)
+        if len(output) > _MAX_TEXT_OUTPUT or decompressor.unconsumed_tail:
+            return None
+        output += decompressor.flush(_MAX_TEXT_OUTPUT + 1 - len(output))
+        return output if len(output) <= _MAX_TEXT_OUTPUT else None
+    except zlib.error:
+        return None
+
+
+def _png_text(chunk_type: str, payload: bytes) -> tuple[str, str] | None:
+    try:
+        if chunk_type == "tEXt":
+            keyword, text = payload.split(b"\x00", 1)
+            return keyword.decode("latin-1"), text.decode("latin-1")[:_MAX_TEXT_OUTPUT]
+        if chunk_type == "zTXt":
+            keyword, remainder = payload.split(b"\x00", 1)
+            if not remainder or remainder[0] != 0:
+                return None
+            decoded = _bounded_zlib(remainder[1:])
+            return (
+                (keyword.decode("latin-1"), decoded.decode("latin-1"))
+                if decoded is not None else None
+            )
+        if chunk_type == "iTXt":
+            keyword, remainder = payload.split(b"\x00", 1)
+            if len(remainder) < 2:
+                return None
+            compressed = remainder[0] == 1
+            remainder = remainder[2:]
+            _language, remainder = remainder.split(b"\x00", 1)
+            _translated, text = remainder.split(b"\x00", 1)
+            if compressed:
+                decoded = _bounded_zlib(text)
+                if decoded is None:
+                    return None
+                text = decoded
+            return keyword.decode("latin-1"), text.decode("utf-8", errors="replace")[:_MAX_TEXT_OUTPUT]
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return None
 
 
 def parse_png(
@@ -27,6 +82,9 @@ def parse_png(
     index = 0
     logical_end: int | None = None
     truncated = False
+    text_entries: list[tuple[str, str]] = []
+    seen_idat = False
+    idat_finished = False
 
     while cursor < len(data):
         if cursor + 12 > len(data):
@@ -41,8 +99,34 @@ def parse_png(
             break
         raw_type = data[cursor + 4 : cursor + 8]
         chunk_type = raw_type.decode("ascii", errors="replace")
+        payload = data[cursor + 8 : cursor + 8 + length]
         expected = int.from_bytes(data[cursor + 8 + length : end], "big")
         actual = zlib.crc32(data[cursor + 4 : cursor + 8 + length]) & 0xFFFFFFFF
+        known = chunk_type in _KNOWN_PNG_CHUNKS
+        suspicious_reasons: list[str] = []
+        if not re.fullmatch(r"[A-Za-z]{4}", chunk_type):
+            suspicious_reasons.append("invalid chunk type")
+        if not known:
+            suspicious_reasons.append("unrecognized custom chunk")
+        if chunk_type in {"tEXt", "zTXt", "iTXt"} and length > 256 * 1024:
+            suspicious_reasons.append("oversized textual chunk")
+        if chunk_type == "IHDR" and length != 13:
+            suspicious_reasons.append("IHDR length is not 13 bytes")
+        if chunk_type == "IEND" and length != 0:
+            suspicious_reasons.append("IEND contains unexpected data")
+        if chunk_type == "PLTE" and seen_idat:
+            suspicious_reasons.append("PLTE occurs after IDAT")
+        if chunk_type == "IDAT":
+            if idat_finished:
+                suspicious_reasons.append("non-contiguous IDAT sequence")
+            seen_idat = True
+        elif seen_idat:
+            idat_finished = True
+        text_entry = _png_text(chunk_type, payload)
+        if text_entry is not None:
+            text_entries.append(text_entry)
+        elif chunk_type in {"zTXt", "iTXt"}:
+            suspicious_reasons.append("compressed text could not be decoded within limits")
         if len(chunks) < max_results:
             chunks.append(
                 PngChunk(
@@ -54,6 +138,10 @@ def parse_png(
                     crc_expected=f"{expected:08x}",
                     crc_actual=f"{actual:08x}",
                     crc_valid=expected == actual,
+                    known=known,
+                    suspicious=bool(suspicious_reasons),
+                    explanation="; ".join(suspicious_reasons) or None,
+                    text_preview=text_entry[1][:2048] if text_entry else None,
                 )
             )
         else:
@@ -62,6 +150,8 @@ def parse_png(
             warnings.append(f"PNG chunk {chunk_type} at offset {cursor} has an invalid CRC.")
         if index == 0 and chunk_type != "IHDR":
             warnings.append("PNG does not begin with an IHDR chunk.")
+        for reason in suspicious_reasons:
+            warnings.append(f"PNG chunk {chunk_type} at offset {cursor}: {reason}.")
         index += 1
         cursor = end
         if chunk_type == "IEND":
@@ -70,7 +160,9 @@ def parse_png(
 
     if logical_end is None:
         warnings.append("PNG IEND chunk was not found.")
-    return chunks, StructureResult(logical_end, tuple(warnings), truncated)
+    return chunks, StructureResult(
+        logical_end, tuple(warnings), truncated, tuple(text_entries)
+    )
 
 
 _MARKER_NAMES: dict[int, str] = {

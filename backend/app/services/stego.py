@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+import logging
 import tempfile
+import threading
 from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
-from anyio import to_thread
+from anyio import CapacityLimiter, to_thread
 from fastapi import UploadFile
 
 from app.analyzers.stego import ImageStegoAnalyzer, StegoInput
-from app.analyzers.stego.structures import JPEG_SIGNATURE, PNG_SIGNATURE
-from app.core.errors import ArtifactTooLargeError, InvalidArtifactError
+from app.analyzers.stego.image import _detect_image_format
+from app.core.errors import (
+    AnalysisBusyError,
+    AnalysisFailedError,
+    AnalysisResourceLimitError,
+    ArtifactTooLargeError,
+    InvalidArtifactError,
+)
 from app.schemas.stego import StegoAnalysisResponse
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 def _safe_display_name(filename: str | None) -> str:
@@ -29,13 +38,24 @@ def _safe_display_name(filename: str | None) -> str:
 class StegoAnalysisService:
     def __init__(self, analyzer: ImageStegoAnalyzer | None = None) -> None:
         self._analyzer = analyzer or ImageStegoAnalyzer()
+        self._worker_limiter = CapacityLimiter(1)
+        self._request_slot = threading.Lock()
 
-    async def analyze(self, upload: UploadFile) -> StegoAnalysisResponse:
-        original_filename = _safe_display_name(upload.filename)
-        maximum = self._analyzer.policy.max_upload_bytes
+    async def analyze(
+        self,
+        upload: UploadFile,
+        *,
+        show_all: bool = False,
+        deep_scan: bool = False,
+    ) -> StegoAnalysisResponse:
+        if not self._request_slot.acquire(blocking=False):
+            await upload.close()
+            raise AnalysisBusyError(self._analyzer.name)
         artifact_id = str(uuid4())
 
         try:
+            original_filename = _safe_display_name(upload.filename)
+            maximum = self._analyzer.policy.max_upload_bytes
             with tempfile.TemporaryDirectory(prefix="ctfkit-stego-") as temporary:
                 workspace = Path(temporary)
                 artifact_path = workspace / f"artifact-{artifact_id}"
@@ -45,9 +65,9 @@ class StegoAnalysisService:
                     while chunk := await upload.read(_UPLOAD_CHUNK_BYTES):
                         if first_chunk:
                             first_chunk = False
-                            if not chunk.startswith((PNG_SIGNATURE, JPEG_SIGNATURE)):
+                            if _detect_image_format(chunk[:12]) is None:
                                 raise InvalidArtifactError(
-                                    "Only PNG and JPEG images are supported for steganography analysis."
+                                    "Only PNG, BMP, GIF, TIFF, lossless WebP, and JPEG images are supported."
                                 )
                         size += len(chunk)
                         if size > maximum:
@@ -62,7 +82,28 @@ class StegoAnalysisService:
                     original_filename=original_filename,
                     artifact_id=artifact_id,
                     workspace=workspace,
+                    show_all=show_all,
+                    deep_scan=deep_scan,
                 )
-                return await to_thread.run_sync(partial(self._analyzer.analyze, stego_input))
+                try:
+                    return await to_thread.run_sync(
+                        partial(self._analyzer.analyze, stego_input),
+                        limiter=self._worker_limiter,
+                    )
+                except InvalidArtifactError:
+                    raise
+                except MemoryError as exc:
+                    logger.exception(
+                        "Stego analysis exhausted memory",
+                        extra={"artifact_id": artifact_id, "analyzer": self._analyzer.name},
+                    )
+                    raise AnalysisResourceLimitError(self._analyzer.name) from exc
+                except Exception as exc:
+                    logger.exception(
+                        "Stego analysis failed",
+                        extra={"artifact_id": artifact_id, "analyzer": self._analyzer.name},
+                    )
+                    raise AnalysisFailedError(self._analyzer.name) from exc
         finally:
+            self._request_slot.release()
             await upload.close()

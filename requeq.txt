@@ -1,0 +1,34 @@
+Set up and run CTF-ToolKit on this Linux machine.
+
+Repository:
+https://github.com/Froi-Dev/CTF-ToolKit.git
+
+Requirements:
+- Detect the Linux distribution and use its appropriate package manager.
+- Install Git.
+- Install Python 3.12 or newer, pip, and Python virtual-environment support.
+- Install Node.js 20 or newer and npm.
+- Install TShark for the PCAP/network analyzer.
+- Clone the repository. If it is already cloned, safely update it without deleting local changes.
+- In the project root, install the frontend dependencies with `npm ci`.
+- In `backend`, create a virtual environment named `.venv`.
+- Activate the virtual environment, upgrade pip, and install the backend with:
+  `python -m pip install -e ".[test]"`
+- Install Chromium and its Linux dependencies for Playwright with:
+  `python -m playwright install --with-deps chromium`
+- Run the backend tests with `python -m pytest`.
+- Run the frontend checks with `npm run build` and `npm run test:osint`.
+- Do not expose the backend publicly. Keep it bound to `127.0.0.1` because it currently has no authentication or tenancy boundary.
+- Start the backend from `backend` with:
+  `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload`
+- Start the frontend from the project root with `npm run dev`.
+- Confirm that these addresses work:
+  Frontend: http://localhost:5173
+  API documentation: http://127.0.0.1:8000/docs
+
+Before changing anything, inspect the repository README and dependency files. Do not delete or overwrite existing user files or uncommitted changes. If a dependency cannot be installed, report the exact command and error, then provide the safest distribution-specific fix.
+
+Note: A fresh GitHub clone contains only committed and pushed work. It will not contain uncommitted changes from another computer.
+
+
+objdump is unavailable. Install it or set CTFKIT_OBJDUMP_PATH to enable bounded static disassembly.

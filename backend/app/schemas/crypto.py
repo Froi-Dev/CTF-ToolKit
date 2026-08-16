@@ -187,6 +187,22 @@ class RecipeResponse(BaseModel):
 
 ValueEncoding = Literal["auto", "text", "hex", "base64"]
 RsaPadding = Literal["pkcs1v15", "oaep-sha1", "oaep-sha256", "raw"]
+OpenSslCipher = Literal[
+    "auto",
+    "des-cbc",
+    "des-ede3-cbc",
+    "aes-128-cbc",
+    "aes-192-cbc",
+    "aes-256-cbc",
+]
+OpenSslKdf = Literal["auto", "evp-bytes-to-key", "pbkdf2"]
+OpenSslDigest = Literal["auto", "md5", "sha256"]
+PasswordEncoding = Literal["utf-8", "ascii", "hex", "base64"]
+ResolvedOpenSslCipher = Literal[
+    "des-cbc", "des-ede3-cbc", "aes-128-cbc", "aes-192-cbc", "aes-256-cbc"
+]
+ResolvedOpenSslKdf = Literal["evp-bytes-to-key", "pbkdf2"]
+ResolvedOpenSslDigest = Literal["md5", "sha256"]
 
 
 class CryptoMaterial(BaseModel):
@@ -194,6 +210,88 @@ class CryptoMaterial(BaseModel):
 
     value: Annotated[str, StringConstraints(min_length=1, max_length=131_072)]
     encoding: ValueEncoding = "auto"
+
+
+class OpenSslEncryptedMaterial(BaseModel):
+    """Bounded textual transport for a binary OpenSSL payload."""
+
+    model_config = ConfigDict(str_strip_whitespace=False)
+
+    value: Annotated[str, StringConstraints(min_length=1, max_length=3_000_000)]
+    encoding: ValueEncoding = "auto"
+
+
+class OpenSslAnalyzeRequest(BaseModel):
+    encrypted: OpenSslEncryptedMaterial
+    password: str | None = Field(default=None, min_length=1, max_length=4_096)
+
+
+class OpenSslAnalyzeResponse(BaseModel):
+    analyzer: Literal["openssl_enc_analyzer"] = "openssl_enc_analyzer"
+    category: Literal["crypto"] = "crypto"
+    detected: bool
+    format: Literal["openssl-enc", "raw"]
+    header: Literal["Salted__"] | None = None
+    salt_hex: str | None = None
+    total_bytes: int = Field(ge=0)
+    encrypted_payload_bytes: int = Field(ge=0)
+    structure_valid: bool
+    password_supplied: bool
+    password_status: Literal["provided", "not-supplied"]
+    status: Literal["ready-for-decryption", "password-required", "invalid-payload"]
+    message: str
+
+
+class OpenSslDecryptRequest(BaseModel):
+    encrypted: OpenSslEncryptedMaterial
+    password: Annotated[str, StringConstraints(min_length=1, max_length=4_096)]
+    password_encoding: PasswordEncoding = "utf-8"
+    cipher: OpenSslCipher = "auto"
+    kdf: OpenSslKdf = "auto"
+    digest: OpenSslDigest = "auto"
+    iterations: int = Field(default=10_000, ge=1, le=10_000_000)
+    flag_prefixes: list[str] = Field(
+        default_factory=lambda: DEFAULT_FLAG_PREFIXES.copy(), min_length=1, max_length=20
+    )
+
+    @field_validator("flag_prefixes")
+    @classmethod
+    def validate_openssl_flag_prefixes(cls, values: list[str]) -> list[str]:
+        return DecodeRequest.validate_flag_prefixes(values)
+
+
+class OpenSslDecryptCandidate(BaseModel):
+    rank: int = Field(ge=1)
+    cipher: ResolvedOpenSslCipher
+    cipher_label: str
+    kdf: ResolvedOpenSslKdf
+    digest: ResolvedOpenSslDigest
+    iterations: int | None = Field(default=None, ge=1)
+    key_hex: str
+    iv_hex: str
+    padding_valid: Literal[True] = True
+    printable_percentage: float = Field(ge=0.0, le=100.0)
+    utf8_valid: bool
+    file_magic: str | None = None
+    confidence: Literal["LOW", "MEDIUM", "HIGH", "VERY HIGH"]
+    score: float = Field(ge=0.0, le=1.0)
+    plaintext: str
+    plaintext_format: Literal["utf-8", "hex"]
+    plaintext_base64: str
+    artifacts: list[ArtifactDetection]
+    flags: list[FlagCandidate]
+    equivalent_command: str | None = None
+
+
+class OpenSslDecryptResponse(BaseModel):
+    analyzer: Literal["openssl_enc_decryptor"] = "openssl_enc_decryptor"
+    category: Literal["crypto"] = "crypto"
+    status: Literal["success", "rejected"]
+    payload: OpenSslAnalyzeResponse
+    attempted_variants: int = Field(ge=0)
+    candidates: list[OpenSslDecryptCandidate]
+    rejection_reason: str | None = None
+    possible_causes: list[str] = Field(default_factory=list)
 
 
 class CryptoFinding(BaseModel):

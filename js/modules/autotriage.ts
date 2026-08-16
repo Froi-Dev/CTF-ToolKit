@@ -183,7 +183,7 @@ function renderQueue(): string {
 function renderActions(): string {
   return `<div class="grid-2">
     <div class="section"><div class="section-title mb-4">Run triage</div><div class="panel"><div class="panel-body"><div class="text-sm mb-4">${selectedFile ? escapeHtml(selectedFile.name) : 'Choose a file first.'}</div><button class="btn btn-primary w-full" id="autotriage-action-run" ${selectedFile && !running ? '' : 'disabled'}>${icons.play} Auto Analyze</button></div></div></div>
-    <div class="section"><div class="section-title mb-4">Analyzer policy</div><div class="panel"><div class="panel-body"><div class="text-sm">Baseline checks always run. Image and network analyzers are selected from detected magic bytes, never the filename extension.</div><button class="btn btn-secondary w-full mt-4" id="autotriage-settings">${icons.settings} Analyzer Settings</button></div></div></div>
+    <div class="section"><div class="section-title mb-4">Analyzer policy</div><div class="panel"><div class="panel-body"><div class="text-sm">Baseline checks always run. Image and network analyzers are selected from detected magic bytes, never the filename extension.</div></div></div></div>
   </div>${latestResponse ? renderAnalyzerRuns(latestResponse) : ''}`;
 }
 
@@ -193,13 +193,11 @@ function bindEvents(): void {
   const run = document.getElementById('autotriage-run');
   const actionRun = document.getElementById('autotriage-action-run');
   const dropZone = document.getElementById('autotriage-drop-zone');
-  const settings = document.getElementById('autotriage-settings');
   select?.addEventListener('click', () => input?.click());
   dropZone?.addEventListener('click', () => input?.click());
   input?.addEventListener('change', () => selectArtifact(input.files?.[0] || null));
   run?.addEventListener('click', () => void runAnalysis());
   actionRun?.addEventListener('click', () => void runAnalysis());
-  settings?.addEventListener('click', () => { window.location.hash = 'settings/analyzers'; });
   dropZone?.addEventListener('dragover', event => { event.preventDefault(); dropZone.classList.add('dragover'); });
   dropZone?.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
   dropZone?.addEventListener('drop', event => {

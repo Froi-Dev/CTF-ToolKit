@@ -5,6 +5,10 @@ from app.schemas.crypto import (
     CryptoAnalyzeResponse,
     DecodeRequest,
     DecodeResponse,
+    OpenSslAnalyzeRequest,
+    OpenSslAnalyzeResponse,
+    OpenSslDecryptRequest,
+    OpenSslDecryptResponse,
     RecipeRequest,
     RecipeResponse,
     RsaDecryptRequest,
@@ -39,3 +43,15 @@ async def analyze_crypto_material(request: CryptoAnalyzeRequest) -> CryptoAnalyz
 async def rsa_decrypt(request: RsaDecryptRequest) -> RsaDecryptResponse:
     """Decrypt one bounded RSA block with an explicitly selected padding mode."""
     return await decrypt_service.rsa_decrypt(request)
+
+
+@router.post("/decrypt/openssl/analyze", response_model=OpenSslAnalyzeResponse)
+async def analyze_openssl_payload(request: OpenSslAnalyzeRequest) -> OpenSslAnalyzeResponse:
+    """Recognize an OpenSSL enc container without requiring its password."""
+    return await decrypt_service.openssl_analyze(request)
+
+
+@router.post("/decrypt/openssl", response_model=OpenSslDecryptResponse)
+async def openssl_decrypt(request: OpenSslDecryptRequest) -> OpenSslDecryptResponse:
+    """Try a bounded OpenSSL-compatible CBC key-derivation matrix."""
+    return await decrypt_service.openssl_decrypt(request)

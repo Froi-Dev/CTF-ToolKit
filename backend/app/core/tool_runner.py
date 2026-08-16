@@ -45,7 +45,14 @@ class ToolRunner:
         if normalized not in self._allowlist:
             return None
 
-        override_name = {"tshark": "CTFKIT_TSHARK_PATH"}.get(normalized)
+        override_name = {
+            "tshark": "CTFKIT_TSHARK_PATH",
+            "zsteg": "CTFKIT_ZSTEG_PATH",
+            "binwalk": "CTFKIT_BINWALK_PATH",
+            "exiftool": "CTFKIT_EXIFTOOL_PATH",
+            "pngcheck": "CTFKIT_PNGCHECK_PATH",
+            "objdump": "CTFKIT_OBJDUMP_PATH",
+        }.get(normalized)
         if override_name:
             override = os.environ.get(override_name)
             if override:

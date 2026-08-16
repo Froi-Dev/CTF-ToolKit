@@ -1,4 +1,3 @@
-import { icons } from './data.ts';
 import type { ResolvedNavigation } from './navigation.ts';
 
 export function renderTopbar(activeRoute: ResolvedNavigation): void {
@@ -12,9 +11,5 @@ export function renderTopbar(activeRoute: ResolvedNavigation): void {
       <span class="topbar-breadcrumb-sep">/</span>
       <span class="topbar-breadcrumb-current">${activeRoute.child.label}</span>
     </div>
-    <div class="topbar-spacer"></div>
-    <button class="topbar-icon-btn" title="Notifications">${icons.bell}</button>
-    <button class="topbar-icon-btn" title="Settings" onclick="window.location.hash='settings/general'">${icons.settings}</button>
-    <div class="topbar-avatar" title="Profile">PR</div>
   `;
 }

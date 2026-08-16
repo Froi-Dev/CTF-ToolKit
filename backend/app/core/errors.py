@@ -18,6 +18,36 @@ class InvalidArtifactError(ValueError):
     """Raised when an uploaded artifact cannot be handled safely."""
 
 
+class AnalysisFailedError(RuntimeError):
+    """Raised when an analyzer fails without exposing internal details to the client."""
+
+    def __init__(self, analyzer: str) -> None:
+        self.analyzer = analyzer
+        super().__init__(
+            f"{analyzer} could not complete this artifact. Check the backend log for the recorded cause."
+        )
+
+
+class AnalysisResourceLimitError(RuntimeError):
+    """Raised when analysis cannot continue within the process resource boundary."""
+
+    def __init__(self, analyzer: str) -> None:
+        self.analyzer = analyzer
+        super().__init__(
+            f"{analyzer} exhausted its analysis memory limit for this artifact."
+        )
+
+
+class AnalysisBusyError(RuntimeError):
+    """Raised instead of queueing more expensive work behind an active analyzer."""
+
+    def __init__(self, analyzer: str) -> None:
+        self.analyzer = analyzer
+        super().__init__(
+            f"{analyzer} is already analyzing an image. Wait for it to finish before starting another scan."
+        )
+
+
 class ToolNotAvailableError(RuntimeError):
     """Raised when an allowlisted external analysis tool is unavailable."""
 
@@ -45,6 +75,10 @@ class WebRequestError(RuntimeError):
     def __init__(self, message: str, *, timed_out: bool = False) -> None:
         self.timed_out = timed_out
         super().__init__(message)
+
+
+class InvalidAuthenticationSessionError(RuntimeError):
+    """Raised when supplied authentication material fails its explicit validation check."""
 
 
 class InvalidOsintTargetError(ValueError):

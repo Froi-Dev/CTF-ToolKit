@@ -111,8 +111,6 @@ async def xss_scan(request: XssScanRequest) -> XssScanResult:
 @router.post("/browser-render", response_model=BrowserCapture)
 async def browser_render(request: BrowserRenderRequest) -> BrowserCapture:
     """Single-page browser render with full evidence capture."""
-    from app.services.flag_detector import FlagDetector, _TextSource
-
     capture = await browser_engine.render_page(
         str(request.url),
         headers=request.headers,

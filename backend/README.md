@@ -1,13 +1,17 @@
 # CTFKit backend
 
-The backend currently provides seven bounded analysis slices:
+The backend currently provides eight bounded analysis slices:
 
 - type-aware auto triage at `POST /api/v1/auto-triage/analyze`, combining the
   baseline file analyzer with applicable image or PCAP specialists;
 - recursive cryptography decoding at `POST /api/v1/crypto/decode`, deterministic
   recipes with per-step artifact inspection at `POST /api/v1/crypto/recipes/run`,
   and RSA material analysis/direct decryption at
-  `POST /api/v1/crypto/decrypt/analyze` and `POST /api/v1/crypto/decrypt/rsa`;
+  `POST /api/v1/crypto/decrypt/analyze` and `POST /api/v1/crypto/decrypt/rsa`.
+  OpenSSL `enc` payload recognition and bounded native CBC decryption are available
+  at `POST /api/v1/crypto/decrypt/openssl/analyze` and
+  `POST /api/v1/crypto/decrypt/openssl`, including legacy `EVP_BytesToKey`
+  (MD5/SHA-256), explicit PBKDF2, DES/3DES, and AES candidates;
 - static file/forensics triage at `POST /api/v1/forensics/triage` using a
   multipart `file` field.
 - offline PCAP/PCAPNG analysis at `POST /api/v1/network/analyze` using a
@@ -18,6 +22,16 @@ The backend currently provides seven bounded analysis slices:
   target and request configuration.
 - passive public-data OSINT at `POST /api/v1/osint/investigate` for domains,
   public IP addresses, usernames, and public HTTP(S) URLs.
+- static reverse-engineering analysis at `POST /api/v1/reversing/analyze` for
+  executables, bytecode, scripts, and unknown challenge artifacts.
+
+Reverse-engineering analysis never executes uploads. It identifies common
+native and managed formats, parses ELF and PE headers, sections, protections,
+symbols and imports, prioritizes ASCII/Unicode strings, records candidate-only
+flag matches, and derives validation and debugger leads from observed evidence.
+Bounded native disassembly is enabled when GNU `objdump` is on `PATH` or
+`CTFKIT_OBJDUMP_PATH` points to it; all other static results remain available
+when that optional tool is missing.
 
 Forensics triage derives magic-byte type and MIME, MD5/SHA-1/SHA-256, format
 metadata, printable strings, Shannon entropy, signature offsets, extension
@@ -72,10 +86,15 @@ Web analysis requires `authorization_confirmed: true` and a `target_scope` of
 validated redirect chain, and can fetch same-origin robots.txt, sitemap.xml,
 JavaScript, and declared source maps. Results include request/response headers,
 cookies, HTML comments, endpoints, parameters, technology evidence,
-authentication observations, unverified JWT claim decoding, and an optional
-comparison with submitted authentication state removed. Link-local and cloud
+authentication observations, passive Base64/JWT cookie decoding, cookie-name
+and security-attribute leads, and an optional comparison with submitted
+authentication state removed. Operators can reuse a raw Cookie header, bearer
+token, or custom authentication header on same-origin requests. Supplying an
+`authenticated_url` validates that session before crawling and stops with
+`AUTH_SESSION_INVALID` on a 401/403 or redirect to a login route. Link-local and cloud
 metadata destinations are blocked; private and loopback targets remain available
-for local labs. No fuzzing, credential guessing, or exploit traffic is sent.
+for local labs. No login form, other form, credential guessing, or exploit traffic
+is submitted.
 
 OSINT investigations use modular, failure-isolated providers for Cloudflare
 DNS-over-HTTPS, referral-based WHOIS, RDAP.org bootstrap lookups, crt.sh

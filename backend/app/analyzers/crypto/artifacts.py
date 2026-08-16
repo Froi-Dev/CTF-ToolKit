@@ -112,6 +112,24 @@ def _crypto_artifact(data: bytes) -> ArtifactDetection | None:
 
 def detect_artifacts(data: bytes) -> list[ArtifactDetection]:
     artifacts: list[ArtifactDetection] = []
+    if data.startswith(b"Salted__"):
+        details: dict[str, str | int | bool] = {
+            "format": "OpenSSL enc",
+            "header": "Salted__",
+            "encrypted_bytes": max(0, len(data) - 16),
+        }
+        if len(data) >= 16:
+            details["salt"] = data[8:16].hex()
+        artifacts.append(
+            ArtifactDetection(
+                kind="openssl-enc",
+                label="OpenSSL salted payload",
+                mime="application/octet-stream",
+                confidence=1.0,
+                details=details,
+                send_to_decryptor=True,
+            )
+        )
     crypto = _crypto_artifact(data)
     if crypto is not None:
         artifacts.append(crypto)

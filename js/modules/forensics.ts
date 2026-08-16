@@ -43,15 +43,6 @@ export function renderForensics(view?: string): void {
     );
     return;
   }
-  if (view === 'other') {
-    renderUnavailableWorkspace(
-      'Other Forensics',
-      'A home for additional evidence types that do not belong to file, archive, image, or disk analysis.',
-      ['Memory dumps', 'Document inspection', 'Log analysis', 'Mobile artifacts'],
-      'These analyzers are not implemented yet. Available file and image analysis remain accessible from the Forensics submenu.',
-    );
-    return;
-  }
   renderShell();
 }
 

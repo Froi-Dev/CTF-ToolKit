@@ -26,7 +26,11 @@ export function renderSidebar(activePath: string): void {
     html += `<div class="sidebar-section" aria-labelledby="${sectionLabelId}">`;
     html += `<div class="sidebar-section-label" id="${sectionLabelId}">${section.label}</div>`;
 
-    for (const item of section.items) {
+    // Direct modules stay above expandable groups so one-click tools remain easy to reach.
+    const orderedItems = [...section.items].sort((left, right) =>
+      Number(left.children.length > 1) - Number(right.children.length > 1)
+    );
+    for (const item of orderedItems) {
       const isActiveGroup = item.id === activeRoute.parent.id;
       const isDirect = item.children.length === 1;
       const isExpanded = expandedItem === item.id;

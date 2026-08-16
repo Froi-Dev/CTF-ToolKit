@@ -11,6 +11,7 @@ import {
   type UdpStream,
 } from '../api/network.ts';
 import { icons } from '../data.ts';
+import { sendRawArtifactToDecryptor } from './crypto.ts';
 
 type NetworkTab = 'overview' | 'investigate' | 'packets' | 'protocols' | 'conversations' | 'application' | 'streams' | 'evidence' | 'timeline';
 type StreamView = 'ascii' | 'hex';
@@ -31,11 +32,10 @@ let selectedTargetId: string | null = null;
 let selectedPacketNumber: number | null = null;
 let investigationFilter: InvestigationFilter = 'all';
 let investigationSort: InvestigationSort = 'suspicion';
-let customFlagPrefix = '';
 let activeRequest: AbortController | null = null;
 let progressPollTimer: number | null = null;
 let analyzing = false;
-let statusMessage = 'Ready for an offline capture artifact';
+let statusMessage = '';
 let statusIsError = false;
 
 function escapeHtml(value: unknown): string {
@@ -70,23 +70,9 @@ function emptyTableRow(columns: number, message: string): string {
 }
 
 export function renderNetwork(): void {
-  stopProgressPolling();
-  activeRequest?.abort();
-  activeRequest = null;
-  activeTab = 'overview';
-  activeStreamView = 'ascii';
-  selectedFile = null;
-  latestResponse = null;
-  selectedStreamId = null;
-  selectedStreamProtocol = 'tcp';
-  selectedTargetId = null;
-  selectedPacketNumber = null;
-  investigationFilter = 'all';
-  investigationSort = 'suspicion';
-  customFlagPrefix = '';
-  analyzing = false;
-  statusMessage = 'Ready for an offline capture artifact';
-  statusIsError = false;
+  // Module state is the current browser-session workspace. Navigating to another
+  // tool must not discard an analyzed capture or interrupt an analysis in flight.
+  // Selecting another capture remains the explicit replacement boundary.
   renderShell();
 }
 
@@ -113,9 +99,6 @@ function renderShell(): void {
           <div class="text-sm truncate" id="network-selection">${selectedFile ? escapeHtml(selectedFile.name) : 'No capture selected'}</div>
           <div class="text-xs text-muted">PCAP/PCAPNG only, up to 128 MiB. The saved capture is analyzed offline; no network interface is accessed.</div>
         </div>
-        <label class="text-xs text-muted" style="min-width:190px">Custom flag prefix
-          <input id="network-flag-prefix" class="form-input mono" maxlength="65" placeholder="exampleCTF{" value="${escapeHtml(customFlagPrefix)}">
-        </label>
         <div class="text-xs ${statusIsError ? '' : 'text-muted'}" id="network-status" ${statusIsError ? 'style="color:var(--error)"' : ''}>${escapeHtml(statusMessage)}</div>
       </div>
     </div>
@@ -378,7 +361,7 @@ function renderStreamViewer(stream: TcpStream | UdpStream, protocol: 'tcp' | 'ud
     <div class="raw-viewer"><div class="raw-viewer-toolbar"><div class="tab-bar" style="border:none;margin:0">
       <div class="tab-item ${activeStreamView === 'ascii' ? 'active' : ''}" data-stream-view="ascii" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">ASCII</div>
       <div class="tab-item ${activeStreamView === 'hex' ? 'active' : ''}" data-stream-view="hex" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">Hex</div>
-    </div><div class="topbar-spacer"></div><span class="text-xs text-muted">Rendering up to ${formatBytes(MAX_STREAM_RENDER_BYTES)}</span></div>
+    </div><div class="topbar-spacer"></div><button class="btn btn-primary btn-sm" data-send-stream="${stream.stream_id}" data-send-stream-protocol="${protocol}">Send Raw to Decryptor</button><span class="text-xs text-muted">Rendering up to ${formatBytes(MAX_STREAM_RENDER_BYTES)}</span></div>
     <div class="raw-viewer-content">${content}</div></div></div>`;
 }
 
@@ -438,9 +421,6 @@ function bindEvents(): void {
   const dropZone = document.getElementById('network-drop-zone');
   select?.addEventListener('click', () => input?.click());
   input?.addEventListener('change', () => selectCapture(input.files?.[0] || null));
-  document.getElementById('network-flag-prefix')?.addEventListener('input', event => {
-    customFlagPrefix = (event.target as HTMLInputElement).value;
-  });
   run?.addEventListener('click', () => void runAnalysis());
   dropZone?.addEventListener('click', () => input?.click());
   dropZone?.addEventListener('keydown', event => {
@@ -513,6 +493,23 @@ function bindEvents(): void {
       renderShell();
     });
   });
+  document.querySelectorAll<HTMLButtonElement>('[data-send-stream]').forEach(button => {
+    button.addEventListener('click', () => {
+      if (!latestResponse) return;
+      const protocol = button.dataset.sendStreamProtocol === 'udp' ? 'udp' : 'tcp';
+      const streamId = Number(button.dataset.sendStream);
+      const stream = protocol === 'tcp'
+        ? latestResponse.tcp_streams.find(item => item.stream_id === streamId)
+        : latestResponse.udp_streams.find(item => item.stream_id === streamId);
+      if (!stream?.reconstructed_base64) return;
+      sendRawArtifactToDecryptor(
+        `${protocol}-stream-${streamId}.bin`,
+        stream.reconstructed_base64,
+        `${protocol.toUpperCase()} reconstructed stream`,
+        `Network Analyzer · ${protocol.toUpperCase()} Stream ${streamId}`,
+      );
+    });
+  });
   document.querySelectorAll<HTMLButtonElement>('[data-file-id]').forEach(button => {
     button.addEventListener('click', () => downloadTransferredFile(button.dataset.fileId || ''));
   });
@@ -534,7 +531,7 @@ function selectCapture(file: File | null): void {
   activeTab = 'overview';
   statusIsError = false;
   if (!file) {
-    statusMessage = 'Ready for an offline capture artifact';
+    statusMessage = '';
   } else if (file.size > MAX_UPLOAD_BYTES) {
     statusMessage = `The selected file exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} upload limit.`;
     statusIsError = true;
@@ -560,7 +557,7 @@ async function runAnalysis(): Promise<void> {
     latestResponse = await analyzePcapFile(
       selectedFile,
       controller.signal,
-      customFlagPrefix,
+      undefined,
       progressId,
     );
     selectedStreamProtocol = latestResponse.tcp_streams.length ? 'tcp' : 'udp';

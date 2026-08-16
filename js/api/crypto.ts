@@ -55,6 +55,32 @@ export interface RsaDecryptResponse {
   plaintext_base64: string; artifacts: ArtifactDetection[]; flags: FlagCandidate[];
 }
 
+export type OpenSslCipher = 'auto' | 'des-cbc' | 'des-ede3-cbc' | 'aes-128-cbc' | 'aes-192-cbc' | 'aes-256-cbc';
+export type OpenSslKdf = 'auto' | 'evp-bytes-to-key' | 'pbkdf2';
+export type OpenSslDigest = 'auto' | 'md5' | 'sha256';
+export type PasswordEncoding = 'utf-8' | 'ascii' | 'hex' | 'base64';
+export interface OpenSslAnalyzeResponse {
+  analyzer: 'openssl_enc_analyzer'; category: 'crypto'; detected: boolean;
+  format: 'openssl-enc' | 'raw'; header: 'Salted__' | null; salt_hex: string | null;
+  total_bytes: number; encrypted_payload_bytes: number; structure_valid: boolean;
+  password_supplied: boolean; password_status: 'provided' | 'not-supplied';
+  status: 'ready-for-decryption' | 'password-required' | 'invalid-payload'; message: string;
+}
+export interface OpenSslDecryptCandidate {
+  rank: number; cipher: Exclude<OpenSslCipher, 'auto'>; cipher_label: string;
+  kdf: Exclude<OpenSslKdf, 'auto'>; digest: Exclude<OpenSslDigest, 'auto'>;
+  iterations: number | null; key_hex: string; iv_hex: string; padding_valid: true;
+  printable_percentage: number; utf8_valid: boolean; file_magic: string | null;
+  confidence: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY HIGH'; score: number;
+  plaintext: string; plaintext_format: 'utf-8' | 'hex'; plaintext_base64: string;
+  artifacts: ArtifactDetection[]; flags: FlagCandidate[]; equivalent_command: string | null;
+}
+export interface OpenSslDecryptResponse {
+  analyzer: 'openssl_enc_decryptor'; category: 'crypto'; status: 'success' | 'rejected';
+  payload: OpenSslAnalyzeResponse; attempted_variants: number;
+  candidates: OpenSslDecryptCandidate[]; rejection_reason: string | null; possible_causes: string[];
+}
+
 export function decodeCrypto(input: string, signal?: AbortSignal): Promise<DecodeResponse> {
   return apiRequest<DecodeResponse>('/crypto/decode', {
     method: 'POST', body: JSON.stringify({ input, max_depth: 5, max_results: 14 }), signal,
@@ -80,5 +106,25 @@ export function decryptRsa(
 ): Promise<RsaDecryptResponse> {
   return apiRequest<RsaDecryptResponse>('/crypto/decrypt/rsa', {
     method: 'POST', body: JSON.stringify({ private_key: privateKey, ciphertext, padding: rsaPadding }), signal,
+  });
+}
+
+export function analyzeOpenSsl(
+  encrypted: CryptoMaterial, password: string | null, signal?: AbortSignal,
+): Promise<OpenSslAnalyzeResponse> {
+  return apiRequest<OpenSslAnalyzeResponse>('/crypto/decrypt/openssl/analyze', {
+    method: 'POST', body: JSON.stringify({ encrypted, password: password || null }), signal,
+  });
+}
+
+export function decryptOpenSsl(
+  request: {
+    encrypted: CryptoMaterial; password: string; password_encoding: PasswordEncoding;
+    cipher: OpenSslCipher; kdf: OpenSslKdf; digest: OpenSslDigest; iterations: number;
+  },
+  signal?: AbortSignal,
+): Promise<OpenSslDecryptResponse> {
+  return apiRequest<OpenSslDecryptResponse>('/crypto/decrypt/openssl', {
+    method: 'POST', body: JSON.stringify(request), signal,
   });
 }

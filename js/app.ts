@@ -5,16 +5,13 @@ import { renderAutoTriage } from './modules/autotriage.ts';
 import { renderWeb } from './modules/web.ts';
 import { renderCrypto } from './modules/crypto.ts';
 import { renderForensics } from './modules/forensics.ts';
+import { renderAudio } from './modules/audio.ts';
 import { renderNetwork } from './modules/network.ts';
 import { renderOsint } from './modules/osint.ts';
 import { renderStego } from './modules/stego.ts';
 import { renderReverse } from './modules/reverse.ts';
-import { renderBinary } from './modules/binary.ts';
-import { renderMalware } from './modules/malware.ts';
 import { renderHashes } from './modules/hashes.ts';
 import { renderWordlists } from './modules/wordlists.ts';
-import { renderReports } from './modules/reports.ts';
-import { renderSettings } from './modules/settings.ts';
 import { resolveNavigation } from './navigation.ts';
 
 type RouteRenderer = (view?: string) => void;
@@ -25,16 +22,13 @@ const routes: Record<string, RouteRenderer> = {
   web: renderWeb,
   crypto: renderCrypto,
   forensics: renderForensics,
+  audio: renderAudio,
   network: renderNetwork,
   osint: renderOsint,
   stego: renderStego,
   reverse: renderReverse,
-  binary: renderBinary,
-  malware: renderMalware,
   hashes: renderHashes,
   wordlists: renderWordlists,
-  reports: renderReports,
-  settings: renderSettings,
 };
 
 function render(): void {
