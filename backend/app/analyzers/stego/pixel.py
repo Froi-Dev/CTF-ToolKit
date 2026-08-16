@@ -9,7 +9,6 @@ import time
 import zlib
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable
 from uuid import uuid4
 
 import numpy as np
@@ -229,31 +228,6 @@ def _sample_values(
     return selected[:, channel_indexes].reshape(-1)
 
 
-def _detect_codes(image: Image.Image) -> list[tuple[str, str]]:
-    detections: list[tuple[str, str]] = []
-    try:
-        import cv2  # type: ignore[import-not-found]
-
-        array = np.asarray(image.convert("RGB"))[:, :, ::-1]
-        detector = cv2.QRCodeDetector()
-        value, _points, _straight = detector.detectAndDecode(array)
-        if value:
-            detections.append(("QR_CODE", value))
-    except (ImportError, AttributeError, RuntimeError, ValueError):
-        pass
-    try:
-        from pyzbar.pyzbar import decode as decode_barcode  # type: ignore[import-not-found]
-
-        for decoded in decode_barcode(image):
-            value = decoded.data.decode("utf-8", errors="replace")
-            item = (str(decoded.type), value)
-            if value and item not in detections:
-                detections.append(item)
-    except (ImportError, OSError, RuntimeError, ValueError):
-        pass
-    return detections
-
-
 class PixelStegoEngine:
     """Bounded native zsteg-style extraction and candidate ranking engine."""
 
@@ -398,7 +372,6 @@ class PixelStegoEngine:
             findings.extend(noise[: min(self.policy.max_noise_findings, self.policy.max_findings - len(findings))])
 
         visuals, barcodes = self._visuals(pixels, channel_names)
-        findings.extend(self._barcode_findings(barcodes))
         findings.sort(key=lambda item: (item.score, item.confidence), reverse=True)
         findings = findings[: self.policy.max_findings]
         elapsed = max(0, round((time.monotonic() - started) * 1000))
@@ -640,13 +613,6 @@ class PixelStegoEngine:
     ) -> tuple[list[BitPlaneVisual], list[BarcodeDetection]]:
         visuals: list[BitPlaneVisual] = []
         barcodes: list[BarcodeDetection] = []
-        original = Image.fromarray(pixels.astype(np.uint8), mode="RGBA" if pixels.shape[2] == 4 else "RGB")
-        barcode_source = original
-        if max(original.size) > 1024:
-            barcode_source = original.copy()
-            barcode_source.thumbnail((1024, 1024), getattr(Image, "Resampling", Image).NEAREST)
-        for symbology, payload in _detect_codes(barcode_source):
-            barcodes.append(BarcodeDetection(symbology=symbology, payload=payload, source="original"))
 
         height, width = pixels.shape[:2]
         stride = max(
@@ -658,14 +624,6 @@ class PixelStegoEngine:
             for bit in range(8):
                 plane = (((values >> bit) & 1) * 255).astype(np.uint8)
                 image = Image.fromarray(plane, mode="L")
-                codes = _detect_codes(image)
-                payloads = [payload for _symbology, payload in codes]
-                for symbology, payload in codes:
-                    barcodes.append(
-                        BarcodeDetection(
-                            symbology=symbology, payload=payload, source=f"bit-plane:{channel}{bit}"
-                        )
-                    )
                 output = io.BytesIO()
                 image.save(output, format="PNG")
                 visuals.append(
@@ -677,48 +635,12 @@ class PixelStegoEngine:
                         height=image.height,
                         png_base64=base64.b64encode(output.getvalue()).decode("ascii"),
                         one_ratio=round(float(np.mean(plane > 0)), 4),
-                        qr_payloads=payloads,
+                        qr_payloads=[],
                     )
                 )
         unique: dict[tuple[str, str], BarcodeDetection] = {}
         for item in barcodes:
             unique[(item.symbology, item.payload)] = item
         return visuals, list(unique.values())
-
-    @staticmethod
-    def _barcode_findings(barcodes: Iterable[BarcodeDetection]) -> list[StegoFinding]:
-        findings: list[StegoFinding] = []
-        for barcode in barcodes:
-            data = barcode.payload.encode("utf-8")
-            flags = _flags(data, barcode.source)
-            score = 100 if flags else 70
-            findings.append(
-                StegoFinding(
-                    finding_id=str(uuid4()),
-                    title="FLAG CANDIDATE FOUND" if flags else f"{barcode.symbology} payload",
-                    source="qr_barcode",
-                    severity="critical" if flags else "high",
-                    confidence=0.99 if flags else 0.9,
-                    score=score,
-                    detected_type="ctf_flag" if flags else "barcode_text",
-                    explanation=f"Decoded {barcode.symbology} from {barcode.source}.",
-                    offset=0,
-                    length=len(data),
-                    entropy=_entropy(data),
-                    printable_ratio=_printable_ratio(data),
-                    utf8_valid=True,
-                    null_ratio=0.0,
-                    preview_text=barcode.payload[:512],
-                    preview_hex=data[:128].hex(),
-                    data_base64=base64.b64encode(data).decode("ascii"),
-                    data_truncated=False,
-                    flags=flags,
-                    analysis_chain=[
-                        AnalysisChainStep(operation="barcode detection", detail=barcode.source)
-                    ],
-                )
-            )
-        return findings
-
 
 __all__ = ["PixelScanPolicy", "PixelStegoEngine"]

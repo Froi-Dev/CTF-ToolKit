@@ -1,4 +1,4 @@
-﻿import { wordlistsData, icons } from '../data.ts';
+﻿import { icons } from '../data.ts';
 
 export function renderWordlists(view?: string) {
   const main = document.getElementById('main');
@@ -16,24 +16,11 @@ export function renderWordlists(view?: string) {
 }
 
 function renderWordlistTable() {
-  const rows = wordlistsData.map(w => `<tr class="clickable">
-    <td class="mono font-medium" style="font-size:var(--text-xs)">${w.name}</td>
-    <td class="mono text-muted" style="font-size:var(--text-xs)">${w.entries.toLocaleString()}</td>
-    <td class="text-muted">${w.size}</td>
-    <td class="text-secondary">${w.desc}</td>
-    <td>
-      <div class="flex gap-2">
-        <button class="btn btn-sm btn-ghost">${icons.download}</button>
-        <button class="btn btn-sm btn-ghost">${icons.copy}</button>
-      </div>
-    </td>
-  </tr>`).join('');
-
   return `<div class="section">
     <div class="section-title mb-4">Available Wordlists</div>
     <table class="data-table">
       <thead><tr><th>Name</th><th>Entries</th><th>Size</th><th>Description</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody><tr><td colspan="5" class="text-muted">No wordlists have been imported.</td></tr></tbody>
     </table>
   </div>`;
 }
@@ -45,7 +32,7 @@ function renderCustomGenerator() {
       <div class="panel"><div class="panel-body">
         <div class="settings-field">
           <div class="settings-field-label">Base words (one per line)</div>
-          <textarea class="textarea" rows="5" placeholder="shadow\nprotocol\nadmin\nctf\n2026">shadow\nprotocol\nadmin\nctf\n2026</textarea>
+          <textarea class="textarea" rows="5" placeholder="Enter one base word per line"></textarea>
         </div>
         <div class="settings-field">
           <div class="settings-field-label">Mutation rules</div>
@@ -61,20 +48,10 @@ function renderCustomGenerator() {
       </div></div>
       <div class="panel"><div class="panel-body">
         <div class="settings-field-label mb-4">Preview (first 10)</div>
-        <div class="code-viewer"><pre>sh4d0w
-Sh4d0w
-shadow2026
-pr0t0c0l
-Protocol
-admin_shadow
-Adm1n
-ctf2026
-CTF2026
-sh4d0w_pr0t0c0l</pre></div>
-        <div class="text-xs text-muted mt-4">Estimated: ~2,847 entries · 24 KB</div>
+        <div class="code-viewer"><pre>No preview generated.</pre></div>
+        <div class="text-xs text-muted mt-4">Generate a wordlist to calculate its estimated size.</div>
       </div></div>
     </div>
   </div>`;
 }
-
 

@@ -77,7 +77,7 @@ function renderAnalyzers() {
   const analyzers = [
     { name: 'Network Analyzer', desc: 'PCAP parsing, stream extraction, protocol analysis', enabled: true },
     { name: 'Forensics Engine', desc: 'Disk image analysis, file recovery, timeline generation', enabled: true },
-    { name: 'Stego Detector', desc: 'LSB analysis, file carving, metadata extraction', enabled: true },
+    { name: 'Stego Detector', desc: 'LSB/MSB analysis, file carving, ExifTool metadata', enabled: true },
     { name: 'Crypto Decoder', desc: 'Encoding detection, cipher analysis, key search', enabled: true },
     { name: 'Binary Analyzer', desc: 'ELF/PE parsing, string extraction, disassembly', enabled: true },
     { name: 'Web Scanner', desc: 'HTTP analysis, endpoint discovery, technology detection', enabled: false },
@@ -188,5 +188,4 @@ function bindSettingsEvents() {
     });
   });
 }
-
 

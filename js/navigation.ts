@@ -61,6 +61,7 @@ export const navigationSections: NavigationSection[] = [
       ] },
       { id: 'forensics', label: 'Forensics', icon: 'forensics', children: [
         child('forensics', 'files', 'File / Archive Analysis'),
+        child('forensics', 'pdf-qr', 'PDF / QR Analysis'),
         child('forensics', 'image-steganography', 'Image / Steganography', 'stego', 'overview'),
         child('forensics', 'audio', 'Audio Analyzer', 'audio', 'audio'),
         child('forensics', 'disk-partition', 'Disk / Partition'),
@@ -101,6 +102,7 @@ const legacyRoutes: Record<string, string> = {
   dashboard: 'dashboard/findings', autotriage: 'autotriage/new',
   web: 'web/scanner', 'web/passive': 'web/scanner', 'web/active': 'web/scanner',
   crypto: 'crypto/decoder', forensics: 'forensics/files',
+  'forensics/pdf': 'forensics/pdf-qr', 'forensics/qr-barcode': 'forensics/pdf-qr',
   stego: 'forensics/image-steganography', network: 'network/analyzer',
   'network/overview': 'network/analyzer', 'network/protocols': 'network/analyzer',
   'network/streams': 'network/analyzer', osint: 'osint/website',

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.forensics import EntropyResult, Hashes
+from app.schemas.forensics import EntropyResult, Hashes, MetadataAnalysis
 
 
 class ImageMetadataEntry(BaseModel):
@@ -254,6 +254,7 @@ class StegoAnalysisResponse(BaseModel):
     hashes: Hashes
     image: ImageSummary
     metadata: list[ImageMetadataEntry]
+    metadata_analysis: MetadataAnalysis
     png_chunks: list[PngChunk]
     png_chunks_truncated: bool
     jpeg_segments: list[JpegSegment]
@@ -262,6 +263,7 @@ class StegoAnalysisResponse(BaseModel):
     channels: list[ChannelInspection]
     bit_planes: list[BitPlaneResult]
     lsb: list[LsbAnalysis]
+    msb: list[LsbAnalysis]
     entropy: EntropyAnalysis
     signatures: list[SignatureCandidate]
     carved_artifacts: list[CarvedArtifact]

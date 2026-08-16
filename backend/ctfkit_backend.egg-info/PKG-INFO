@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: ctfkit-backend
+Version: 0.1.0
+Summary: Backend analysis services for CTFKit
+Requires-Python: >=3.12
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: cryptography<47.0,>=43.0
+Requires-Dist: httpx<1.0,>=0.27
+Requires-Dist: numpy<3.0,>=1.26
+Requires-Dist: Pillow<13.0,>=11.0
+Requires-Dist: playwright<2.0,>=1.40
+Requires-Dist: pydantic<3.0,>=2.9
+Requires-Dist: python-multipart<1.0,>=0.0.18
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Provides-Extra: test
+Requires-Dist: httpx<1.0,>=0.27; extra == "test"
+Requires-Dist: pytest<9.0,>=8.3; extra == "test"
+Provides-Extra: qr
+Requires-Dist: opencv-python-headless<5.0,>=4.10; extra == "qr"
+Requires-Dist: pyzbar<1.0,>=0.1.9; extra == "qr"
+Requires-Dist: zxing-cpp<3.0,>=2.3; extra == "qr"
