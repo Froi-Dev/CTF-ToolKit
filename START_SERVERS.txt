@@ -32,9 +32,12 @@ Location: Backend Directory (CTF-ToolKit\backend)
 
 - Prerequisites (first time setup):
   cd backend
-  pip install -e ".[test]"
+  pip install -e ".[test,qr]"
   # Or with Python Launcher on Windows:
-  py -3.12 -m pip install -e ".[test]"
+  py -3.12 -m pip install -e ".[test,qr]"
+
+- Deep forensics: install ExifTool. Install Poppler (pdftoppm) and FFmpeg to
+  scan rendered PDF pages and representative/scene-change video frames.
 
 - Standard Start Command (From backend directory):
   uvicorn app.main:app --reload

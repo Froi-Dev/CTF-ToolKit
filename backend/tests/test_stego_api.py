@@ -154,6 +154,22 @@ def test_png_metadata_structure_channels_bitplanes_lsb_and_flags() -> None:
     assert payload["flags"][0]["source"] == "lsb:R"
 
 
+def test_msb_streams_are_extracted_and_flagged() -> None:
+    image = _image_with_payload(b"CTF{msb_secret}", channel=0, bit_plane=7)
+
+    response = client.post(
+        "/api/v1/stego/analyze",
+        files={"file": ("hidden-msb.png", image, "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    red_stream = next(item for item in payload["msb"] if item["stream"] == "R")
+    assert red_stream["flags"][0]["value"] == "CTF{msb_secret}"
+    assert red_stream["suspicious"] is True
+    assert any(flag["source"] == "msb:R" for flag in payload["flags"])
+
+
 def test_png_trailing_zip_is_detected_and_carved() -> None:
     image = _png()
     archive = _zip({"flag.txt": b"CTF{zip_tail}"})
@@ -428,12 +444,7 @@ def test_compressed_png_metadata_is_decoded_recursively() -> None:
     assert any(step["operation"] == "decode" for step in finding["analysis_chain"])
 
 
-def test_qr_payloads_reenter_flag_pipeline(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.analyzers.stego.pixel._detect_codes",
-        lambda _image: [("QR_CODE", "CTF{visual_qr}")],
-    )
-
+def test_qr_detection_is_owned_by_file_analysis_not_stego() -> None:
     response = client.post(
         "/api/v1/stego/analyze",
         files={"file": ("qr.png", _png(), "image/png")},
@@ -441,12 +452,8 @@ def test_qr_payloads_reenter_flag_pipeline(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["barcodes"][0]["payload"] == "CTF{visual_qr}"
-    assert any(
-        item["source"] == "qr_barcode"
-        and any(flag["value"] == "CTF{visual_qr}" for flag in item["flags"])
-        for item in payload["findings"]
-    )
+    assert payload["barcodes"] == []
+    assert all(item["source"] != "qr_barcode" for item in payload["findings"])
 
 
 def test_zsteg_is_optional_validation_not_native_backend(monkeypatch) -> None:

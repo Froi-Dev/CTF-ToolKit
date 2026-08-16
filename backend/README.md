@@ -42,6 +42,17 @@ collisions, encryption, excessive member counts, excessive expanded sizes,
 and suspicious compression ratios. Temporary extracts are hashed and
 described in the response, then removed; they are not evidence persistence.
 
+Deep metadata analysis uses ExifTool JSON to normalize EXIF, XMP, IPTC, ICC,
+PDF, Office, application, and filesystem fields. It ranks CTF-relevant values,
+performs conservative recursive decoding, compares timestamps, normalizes GPS,
+extracts bounded previews/thumbnails, and retains the raw ExifTool JSON. Set
+`CTFKIT_EXIFTOOL_PATH` when ExifTool is not on `PATH`. QR/barcode recovery scans
+images, animated frames, rendered PDF pages, Office embedded images, sampled and
+scene-change video frames, and safely extracted image artifacts. Install the
+optional Python decoders with `pip install -e ".[qr]"`; Poppler `pdftoppm` and
+FFmpeg enable PDF and video scanning. Missing optional tools are reported and
+never replaced by guessed payloads.
+
 Auto triage always runs the static file checks above. It selects PNG/JPEG
 structure, bit-plane, and LSB inspection or PCAP/PCAPNG protocol analysis from
 detected magic bytes rather than the filename extension. Its response records

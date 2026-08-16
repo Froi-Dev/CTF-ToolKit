@@ -19,6 +19,8 @@ from app.analyzers.forensics.archives import (
     inspect_tar,
     inspect_zip,
 )
+from app.analyzers.forensics.metadata import DeepMetadataAnalyzer
+from app.analyzers.forensics.qr_barcode import QRBarcodeRecoveryAnalyzer
 from app.analyzers.forensics.signatures import (
     TYPE_EXTENSIONS,
     FileSignature,
@@ -37,12 +39,15 @@ from app.schemas.forensics import (
     Hashes,
     MagicByteDetection,
     MetadataEntry,
+    MetadataAnalysis,
+    ForensicFinding,
+    QRBarcodeAnalysis,
     SignatureMatch,
     StringOccurrence,
     TriageLimits,
 )
 
-DEFAULT_FLAG_PREFIXES = ["flag", "CTF", "picoCTF", "HTB", "H4G"]
+DEFAULT_FLAG_PREFIXES = ["flag", "CTF", "picoCTF", "HTB", "THM", "hack", "H4G"]
 _ASCII_STRINGS = re.compile(rb"[\x20-\x7e]{4,}")
 _UTF16LE_STRINGS = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
 _UTF16BE_STRINGS = re.compile(rb"(?:\x00[\x20-\x7e]){4,}")
@@ -66,6 +71,7 @@ class TriageInput:
     original_filename: str
     artifact_id: str
     extraction_root: Path
+    custom_flag_regex: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,8 +384,15 @@ class FileTriageAnalyzer(BaseAnalyzer[TriageInput, ForensicsTriageResponse]):
     name = "file_forensics_triage"
     category = "forensics"
 
-    def __init__(self, policy: TriagePolicy | None = None) -> None:
+    def __init__(
+        self,
+        policy: TriagePolicy | None = None,
+        metadata_analyzer: DeepMetadataAnalyzer | None = None,
+        qr_analyzer: QRBarcodeRecoveryAnalyzer | None = None,
+    ) -> None:
         self.policy = policy or TriagePolicy()
+        self._metadata = metadata_analyzer or DeepMetadataAnalyzer()
+        self._qr = qr_analyzer or QRBarcodeRecoveryAnalyzer()
 
     def supports(self, value: object) -> bool:
         return isinstance(value, TriageInput) and value.path.is_file()
@@ -526,6 +539,126 @@ class FileTriageAnalyzer(BaseAnalyzer[TriageInput, ForensicsTriageResponse]):
         if guessed_mime:
             metadata.append(MetadataEntry(key="filename_mime_hint", value=guessed_mime))
 
+        try:
+            metadata_analysis = self._metadata.analyze(
+                value.path, value.original_filename, value.custom_flag_regex
+            )
+        except Exception as exc:
+            metadata_analysis = MetadataAnalysis(
+                tool_available=True,
+                summary="Deep metadata analysis failed safely; baseline metadata remains available.",
+                warnings=[f"Metadata analyzer error: {type(exc).__name__}."],
+            )
+        qr_workspace = value.extraction_root / "qr-recovery"
+        qr_workspace.mkdir(parents=True, exist_ok=True)
+        try:
+            qr_barcode = self._qr.analyze(
+                value.path, value.original_filename, detection.name, qr_workspace
+            )
+        except Exception as exc:
+            qr_barcode = QRBarcodeAnalysis(
+                warnings=[f"QR/barcode recovery failed safely: {type(exc).__name__}."],
+            )
+        extracted_images = 0
+        for extracted in extracted_paths:
+            if extracted_images >= 20:
+                qr_barcode.warnings.append("QR scanning of extracted image artifacts was limited to 20 files.")
+                break
+            try:
+                child_data = extracted.path.read_bytes()[:16]
+                child_detection = _detect(child_data, extracted.path)
+                if child_detection.name not in {"png", "jpeg", "gif", "bmp", "tiff", "webp"}:
+                    continue
+                child_workspace = qr_workspace / f"extracted-{extracted_images}"
+                child_workspace.mkdir(parents=True, exist_ok=True)
+                child = self._qr.analyze(
+                    extracted.path, extracted.source_path, child_detection.name, child_workspace
+                )
+                qr_barcode.findings.extend(child.findings)
+                qr_barcode.attempts.extend(child.attempts)
+                qr_barcode.variants.extend(child.variants)
+                qr_barcode.structures.extend(child.structures)
+                qr_barcode.scanned_sources.extend(child.scanned_sources)
+                qr_barcode.warnings.extend(child.warnings)
+                qr_barcode.decoders_available = list(dict.fromkeys(qr_barcode.decoders_available + child.decoders_available))
+                qr_barcode.decoders_unavailable = list(dict.fromkeys(qr_barcode.decoders_unavailable + child.decoders_unavailable))
+                extracted_images += 1
+            except (OSError, ValueError):
+                continue
+        qr_barcode.attempts = qr_barcode.attempts[:500]
+        qr_barcode.variants = qr_barcode.variants[:24]
+        qr_barcode.structures = qr_barcode.structures[:40]
+
+        # Promote flags recovered specifically from metadata and machine-readable codes
+        # into the existing unified flag list while retaining their source provenance.
+        existing_flags = {(item.value, item.source) for item in flags}
+        derived_sources: list[tuple[str, str]] = []
+        for item in metadata_analysis.all_metadata:
+            derived_sources.append((item.display_value, f"metadata:{item.key}"))
+        for item in metadata_analysis.decoded:
+            derived_sources.append((item.decoded, f"decoded-metadata:{item.field}"))
+        for item in qr_barcode.findings:
+            derived_sources.append((item.decoded_value, f"{item.symbology}:{item.source}"))
+            if item.secondary_analysis and item.secondary_analysis.decoded:
+                derived_sources.append((item.secondary_analysis.decoded, f"decoded-{item.symbology}:{item.source}"))
+        custom_pattern = None
+        if value.custom_flag_regex:
+            try:
+                custom_pattern = re.compile(value.custom_flag_regex)
+            except re.error:
+                warnings.append("The custom flag regex was invalid and was ignored.")
+        for content, source in derived_sources:
+            candidates = [
+                (flag.value, flag.matched_pattern, flag.offset, flag.confidence, flag.context)
+                for flag in flag_detector.detect(content.encode("utf-8", errors="replace"))
+            ]
+            if custom_pattern:
+                candidates.extend(
+                    (match.group(0), value.custom_flag_regex or "custom", match.start(), 0.95,
+                     content[max(0, match.start() - 32):match.end() + 32])
+                    for match in list(custom_pattern.finditer(content))[:20]
+                )
+            for flag_value, pattern, offset, confidence, context in candidates:
+                if (flag_value, source) in existing_flags:
+                    continue
+                flags.append(FlagCandidate(
+                    value=flag_value, matched_pattern=pattern, source=source, offset=offset,
+                    confidence=confidence, context=context,
+                ))
+                existing_flags.add((flag_value, source))
+
+        notable_findings = list(metadata_analysis.notable)
+        for item in qr_barcode.findings:
+            has_flag = bool(item.secondary_analysis and item.secondary_analysis.flags) or bool(
+                flag_detector.detect(item.decoded_value.encode("utf-8", errors="replace"))
+            )
+            notable_findings.append(ForensicFinding(
+                finding_id=str(uuid4()), severity="critical" if has_flag else "high",
+                title=("Flag recovered from machine-readable code" if has_flag else f"{item.symbology} recovered"),
+                reason=f"{item.decoder} decoded a validated payload using {item.recovery_method}.",
+                analyzer="qr_barcode", section="findings", value=item.decoded_value[:1024],
+            ))
+        for item in flags:
+            if not any(finding.severity == "critical" and finding.value == item.value for finding in notable_findings):
+                notable_findings.append(ForensicFinding(
+                    finding_id=str(uuid4()), severity="critical", title="Flag candidate recovered",
+                    reason=f"A configured flag pattern matched data from {item.source}.",
+                    analyzer="file", section="flags", value=item.value,
+                ))
+        if detection.name != "unknown" and detection.name not in {"text"}:
+            notable_findings.append(ForensicFinding(
+                finding_id=str(uuid4()), severity="info", title=f"Identified {detection.name.upper()} content",
+                reason=detection.description, analyzer="file", section="overview",
+            ))
+        if _extension_assessment(value.original_filename, detection).mismatch:
+            notable_findings.append(ForensicFinding(
+                finding_id=str(uuid4()), severity="medium", title="Filename extension mismatch",
+                reason=_extension_assessment(value.original_filename, detection).reason,
+                analyzer="file", section="overview",
+            ))
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        notable_findings.sort(key=lambda item: severity_order[item.severity])
+
         return ForensicsTriageResponse(
             analysis_id=str(uuid4()),
             artifact_id=value.artifact_id,
@@ -541,6 +674,9 @@ class FileTriageAnalyzer(BaseAnalyzer[TriageInput, ForensicsTriageResponse]):
             ),
             hashes=_hashes(data),
             metadata=metadata,
+            metadata_analysis=metadata_analysis,
+            qr_barcode=qr_barcode,
+            notable_findings=notable_findings,
             strings=strings,
             strings_truncated=strings_truncated,
             entropy=_entropy(data),
