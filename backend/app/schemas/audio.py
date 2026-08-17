@@ -63,8 +63,11 @@ class AudioArtifact(BaseModel):
         "channel",
         "difference-channel",
         "reversed",
+        "slowed",
+        "sped-up",
         "lsb-extraction",
         "embedded-file",
+        "waveform-image",
     ]
     mime_type: str
     description: str
@@ -148,6 +151,13 @@ class EmbeddedAudioFile(BaseModel):
     artifact_id: str | None = None
 
 
+class SstvDetection(BaseModel):
+    detected: bool = False
+    mode: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    header_offset_seconds: float | None = Field(default=None, ge=0)
+
+
 class AudioLimits(BaseModel):
     max_upload_bytes: int
     max_decoded_seconds: float
@@ -169,6 +179,7 @@ class AudioAnalysisResponse(BaseModel):
     channel_correlation: float | None = Field(default=None, ge=-1.0, le=1.0)
     spectrogram: SpectrogramReport | None = None
     tones: ToneAnalysis = Field(default_factory=ToneAnalysis)
+    sstv: SstvDetection | None = None
     lsb_candidates: list[LsbCandidate] = Field(default_factory=list)
     embedded_files: list[EmbeddedAudioFile] = Field(default_factory=list)
     flags: list[AudioFlagCandidate] = Field(default_factory=list)

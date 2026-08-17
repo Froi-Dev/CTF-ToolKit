@@ -133,6 +133,17 @@ def analyze_crypto(request: CryptoAnalyzeRequest) -> CryptoAnalyzeResponse:
         )
         recommendations.append("Analyze the modulus for weak factors; do not run every factorization method blindly.")
 
+    if info.public_exponent > 65537 and info.public_exponent > info.modulus_bits // 2:
+        findings.append(
+            CryptoFinding(
+                title="Unusually large public exponent",
+                severity="high",
+                confidence=0.85,
+                description="The public exponent e is unusually large, suggesting that the private exponent d might be small. This is vulnerable to Wiener's attack.",
+            )
+        )
+        recommendations.append("Attempt Wiener's continued fraction attack to recover d.")
+
     cipher_artifacts = []
     cipher_bytes: int | None = None
     compatible: bool | None = None

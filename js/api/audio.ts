@@ -5,7 +5,7 @@ export type AudioSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export interface AudioArtifact {
   artifact_id: string;
   filename: string;
-  kind: 'spectrogram' | 'channel' | 'difference-channel' | 'reversed' | 'lsb-extraction' | 'embedded-file';
+  kind: 'spectrogram' | 'channel' | 'difference-channel' | 'reversed' | 'slowed' | 'sped-up' | 'lsb-extraction' | 'embedded-file' | 'waveform-image';
   mime_type: string;
   description: string;
   size: number;
@@ -39,6 +39,7 @@ export interface AudioAnalysisResponse {
     carrier_hz: number | null; ultrasonic_peak_hz: number | null; ultrasonic_energy_ratio: number;
   };
   lsb_candidates: Array<{ channel: string; bit_plane: number; bit_order: string; printable_ratio: number; entropy: number; recognized_type: string | null; preview: string | null; artifact_id: string | null }>;
+  sstv: null | { detected: boolean; mode: string | null; confidence: number; header_offset_seconds: number | null };
   embedded_files: Array<{ offset: number; detected_type: string; size: number; artifact_id: string | null }>;
   flags: Array<{ value: string; confidence: number; source: string; extraction_method: string; offset: number | null; channel: string | null; bit_plane: number | null; state: 'candidate'; context: string | null }>;
   findings: Array<{ severity: AudioSeverity; title: string; confidence: number; description: string; location: string | null; method: string; recommendation: string | null; evidence: Record<string, unknown> }>;

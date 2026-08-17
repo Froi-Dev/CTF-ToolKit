@@ -290,6 +290,18 @@
   color: var(--text-primary);
 }
 
+.flag-evidence-header {
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  overflow-wrap: anywhere;
+}
+
+.flag-evidence-header > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
 .panel-body {
   padding: var(--sp-4);
 }

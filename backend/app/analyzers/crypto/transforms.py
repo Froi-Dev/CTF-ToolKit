@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from urllib.parse import unquote_to_bytes
 
 from app.core.errors import DecoderInputError
+from app.analyzers.crypto.classical import (
+    affine_brute_force,
+    rail_fence_brute_force,
+    reverse_string,
+    alternate_chunks,
+)
 
 _BASE64_RE = re.compile(rb"[A-Za-z0-9+/_-]+={0,2}")
 _BASE32_RE = re.compile(rb"[A-Z2-7]+=*", re.IGNORECASE)
@@ -325,6 +331,17 @@ def generate_transformations(
             key = parse_xor_key(value)
             parameter = value if value.lower().startswith(("0x", "hex:", "text:")) else f"text:{value}"
             outputs.append(TransformOutput(apply_xor(data, key), "XOR", parameter, "xor"))
+
+    if previous_family not in {"affine", "caesar"} and time.monotonic() < deadline:
+        for output_bytes, params in affine_brute_force(data):
+            outputs.append(TransformOutput(output_bytes, "Affine", params, "affine"))
+            
+    if previous_family != "transposition" and time.monotonic() < deadline:
+        outputs.append(TransformOutput(reverse_string(data), "Reverse", None, "transposition"))
+        for output_bytes, params in alternate_chunks(data):
+            outputs.append(TransformOutput(output_bytes, "Transposition", params, "transposition"))
+        for output_bytes, params in rail_fence_brute_force(data):
+            outputs.append(TransformOutput(output_bytes, "Rail Fence", params, "transposition"))
 
     unique: dict[bytes, TransformOutput] = {}
     for output in outputs:

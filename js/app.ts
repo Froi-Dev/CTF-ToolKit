@@ -5,6 +5,7 @@ import { renderAutoTriage } from './modules/autotriage.ts';
 import { renderWeb } from './modules/web.ts';
 import { renderCrypto } from './modules/crypto.ts';
 import { renderForensics } from './modules/forensics.ts';
+import { renderDisk } from './modules/disk.ts';
 import { renderAudio } from './modules/audio.ts';
 import { renderNetwork } from './modules/network.ts';
 import { renderOsint } from './modules/osint.ts';
@@ -22,6 +23,7 @@ const routes: Record<string, RouteRenderer> = {
   web: renderWeb,
   crypto: renderCrypto,
   forensics: renderForensics,
+  disk: renderDisk,
   audio: renderAudio,
   network: renderNetwork,
   osint: renderOsint,

@@ -13,6 +13,8 @@ from app.analyzers.forensics import FileTriageAnalyzer, TriageInput
 from app.analyzers.network import NetworkPcapAnalyzer, PcapInput
 from app.analyzers.network.parsing import capture_format
 from app.analyzers.stego import ImageStegoAnalyzer, StegoInput
+from app.analyzers.crypto.triage import CryptoTriageAnalyzer
+from app.schemas.crypto_triage import CryptoTriageInput, CryptoTriageResponse
 from app.core.errors import (
     ArtifactTooLargeError,
     InvalidArtifactError,
@@ -54,10 +56,12 @@ class AutoTriageService:
         forensics: FileTriageAnalyzer | None = None,
         stego: ImageStegoAnalyzer | None = None,
         network: NetworkPcapAnalyzer | None = None,
+        crypto: CryptoTriageAnalyzer | None = None,
     ) -> None:
         self._forensics = forensics or FileTriageAnalyzer()
         self._stego = stego or ImageStegoAnalyzer()
         self._network = network or NetworkPcapAnalyzer()
+        self._crypto = crypto or CryptoTriageAnalyzer()
 
     async def analyze(self, upload: UploadFile) -> AutoTriageResponse:
         original_filename = _safe_display_name(upload.filename)
@@ -234,6 +238,39 @@ class AutoTriageService:
                 )
             )
 
+        crypto_started = perf_counter()
+        crypto: CryptoTriageResponse | None = None
+        try:
+            crypto = self._crypto.analyze(
+                CryptoTriageInput(
+                    path=str(artifact_path),
+                    original_filename=original_filename,
+                    artifact_id=artifact_id,
+                )
+            )
+            runs.append(
+                AnalyzerRun(
+                    analyzer=self._crypto.name,
+                    category="crypto",
+                    status="completed",
+                    duration_ms=_elapsed_ms(crypto_started),
+                    message="Crypto structural triage completed.",
+                )
+            )
+            warnings.extend(crypto.warnings)
+        except Exception as exc:
+            message = f"Crypto triage failed safely: {exc}"
+            runs.append(
+                AnalyzerRun(
+                    analyzer=self._crypto.name,
+                    category="crypto",
+                    status="failed",
+                    duration_ms=_elapsed_ms(crypto_started),
+                    message=message,
+                )
+            )
+            warnings.append(message)
+
         return AutoTriageResponse(
             analysis_id=str(uuid4()),
             artifact_id=artifact_id,
@@ -243,22 +280,24 @@ class AutoTriageService:
             mime_type=forensics.magic.mime_type,
             duration_ms=_elapsed_ms(analysis_started),
             analyzer_runs=runs,
-            capabilities=self._capabilities(forensics, steganography, network, runs),
+            capabilities=self._capabilities(forensics, steganography, network, crypto, runs),
             forensics=forensics,
             steganography=steganography,
             network=network,
+            crypto=crypto,
             warnings=list(dict.fromkeys(warnings)),
         )
 
-    @staticmethod
     def _capabilities(
         forensics: ForensicsTriageResponse,
         stego: StegoAnalysisResponse | None,
         network: NetworkAnalysisResponse | None,
+        crypto: CryptoTriageResponse | None,
         runs: list[AnalyzerRun],
     ) -> list[CapabilityStatus]:
         stego_run = next(item for item in runs if item.category == "steganography")
         network_run = next(item for item in runs if item.category == "network")
+        crypto_run = next(item for item in runs if item.category == "crypto")
 
         def capability(
             key: str,
@@ -286,7 +325,7 @@ class AutoTriageService:
         if network is not None:
             flag_count += len(network.flags)
 
-        return [
+        caps = [
             capability("file_identification", "File identification", forensics.analyzer, "completed", 1, forensics.magic.description),
             capability("hashes", "Cryptographic hashes", forensics.analyzer, "completed", 3, "MD5, SHA-1, and SHA-256 calculated."),
             capability("metadata", "Metadata", forensics.analyzer, "completed", len(forensics.metadata), "Format-aware metadata extracted."),
@@ -300,3 +339,7 @@ class AutoTriageService:
             capability("lsb", "LSB / bit planes", stego_run.analyzer, stego_run.status, lsb_count, stego_run.message),
             capability("network_protocols", "Network protocols", network_run.analyzer, network_run.status, packet_count, network_run.message),
         ]
+        
+        if crypto and crypto.results:
+            caps.append(capability("crypto_triage", "Crypto Classification", crypto_run.analyzer, crypto_run.status, len(crypto.results), "Cryptographic encoding and cipher detection completed."))
+        return caps

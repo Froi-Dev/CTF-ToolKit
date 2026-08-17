@@ -4,12 +4,15 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from app.schemas.audio import AudioAnalysisResponse
 from app.schemas.forensics import ForensicsTriageResponse
+from app.schemas.disk_forensics import DiskForensicsResponse
 from app.services.audio import AudioAnalysisService
 from app.services.forensics import ForensicsTriageService
+from app.services.disk_forensics import DiskForensicsService
 
 router = APIRouter()
 service = ForensicsTriageService()
 audio_service = AudioAnalysisService()
+disk_service = DiskForensicsService()
 
 
 @router.post("/triage", response_model=ForensicsTriageResponse)
@@ -46,3 +49,14 @@ async def analyze_audio(
         raw_signed=raw_signed,
         custom_flag_prefix=custom_flag_prefix,
     )
+
+
+@router.post("/disk/analyze", response_model=DiskForensicsResponse)
+async def analyze_disk(
+    file: Annotated[
+        UploadFile,
+        File(description="A disk image or filesystem image to analyze statically."),
+    ],
+) -> DiskForensicsResponse:
+    """Analyze a disk image for partitions, filesystems, and forensic evidence."""
+    return await disk_service.analyze_disk(file)

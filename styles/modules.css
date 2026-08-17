@@ -2075,3 +2075,302 @@
   background: rgba(22, 163, 74, 0.1);
   border-radius: 4px;
 }
+
+/* ===== AUDIO PLAYBACK ===== */
+.audio-playback-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--sp-4, 16px);
+}
+
+.audio-player-card {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.audio-player-card:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.15));
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+.audio-player-card audio {
+  width: 100%;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.audio-player-card audio::-webkit-media-controls-panel {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ===== NEW FORENSIC WORKSPACE (DISK / PARTITION) ===== */
+.forensic-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: calc(100vh - var(--topbar-height) - 40px); /* minus main padding approx */
+  gap: var(--sp-4);
+}
+
+.forensic-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.forensic-toolbar-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.forensic-toolbar-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.forensic-toolbar-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: flex;
+  gap: var(--sp-3);
+  font-family: var(--font-mono);
+}
+
+.forensic-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.forensic-panes {
+  display: grid;
+  grid-template-columns: 280px 1fr 340px;
+  gap: var(--sp-4);
+  min-height: 0; /* Important for scrollable children in grid */
+}
+
+/* Panels */
+.forensic-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.forensic-pane-header {
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-light);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.forensic-pane-content {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+/* Tree */
+.forensic-tree-container {
+  padding: var(--sp-2);
+}
+
+.forensic-tree-node {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.forensic-tree-node:hover {
+  background: var(--bg-hover);
+}
+
+.forensic-tree-node.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+}
+
+.forensic-tree-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.forensic-tree-node.active .forensic-tree-icon {
+  opacity: 1;
+}
+
+.forensic-tree-children {
+  padding-left: 18px;
+}
+
+/* Dense Table */
+.forensic-table-container {
+  width: 100%;
+}
+
+.forensic-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  text-align: left;
+}
+
+.forensic-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-light);
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.forensic-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+}
+
+.forensic-table tr:hover td {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.forensic-table tr.selected td {
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+}
+
+.forensic-table td.mono {
+  font-family: var(--font-mono);
+}
+
+/* Inspector */
+.inspector-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.inspector-tab {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.inspector-tab:hover {
+  color: var(--text-primary);
+}
+
+.inspector-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.inspector-content {
+  padding: var(--sp-4);
+}
+
+.inspector-kv {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  font-size: var(--text-xs);
+  margin-bottom: var(--sp-4);
+}
+
+.inspector-kv-key {
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.inspector-kv-val {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.inspector-hex {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text-secondary);
+  background: var(--bg-code);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  overflow-x: auto;
+}
+
+.forensic-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-6);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.forensic-progress-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.forensic-progress-item.done {
+  color: var(--success);
+}
+
+.forensic-progress-item.active {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.forensic-progress-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+

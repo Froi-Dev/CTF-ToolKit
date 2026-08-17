@@ -35,12 +35,7 @@ export function renderForensics(view?: string): void {
   latestResponse = null;
   activeTab = 'overview';
   if (view === 'disk-partition') {
-    renderUnavailableWorkspace(
-      'Disk / Partition Forensics',
-      'Inspect partition tables, filesystems, deleted entries, and disk-image timelines.',
-      ['Partition discovery', 'Filesystem browsing', 'Deleted-file recovery', 'Filesystem timeline'],
-      'This workspace is not implemented yet. It will require an isolated Sleuth Kit integration before disk images can be analyzed safely.',
-    );
+    // This is now handled by the separate disk module.
     return;
   }
   renderShell();
@@ -197,7 +192,7 @@ function renderExtracted(result: ForensicsTriageResponse): string {
 function renderFlags(result: ForensicsTriageResponse): string {
   if (!result.flags.length) return '<div class="section"><div class="text-sm text-muted">No configured flag pattern matched the file or safely extracted members.</div></div>';
   return `<div class="section"><div class="section-title mb-4">Review Required</div>${result.flags.map(flag => `<div class="panel mb-4">
-    <div class="panel-header" style="color:var(--success)">${icons.flag} Candidate · ${Math.round(flag.confidence * 100)}%</div>
+    <div class="panel-header flag-evidence-header" style="color:var(--success)">${icons.flag} Candidate · ${Math.round(flag.confidence * 100)}%</div>
     <div class="panel-body"><div class="mono" style="word-break:break-all">${escapeHtml(flag.value)}</div><div class="text-xs text-muted mt-4">${escapeHtml(flag.source)} · byte offset 0x${flag.offset.toString(16)} · not automatically confirmed</div><div class="text-xs mono mt-4">${escapeHtml(flag.context)}</div></div>
   </div>`).join('')}</div>`;
 }

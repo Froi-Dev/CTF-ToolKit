@@ -2,7 +2,7 @@ import { ApiError } from '../api/client.ts';
 import { analyzeAudio, type AudioAnalysisResponse, type AudioArtifact } from '../api/audio.ts';
 import { icons, severityClass } from '../data.ts';
 
-type AudioTab = 'overview' | 'spectrogram' | 'signals' | 'evidence' | 'raw';
+type AudioTab = 'overview' | 'spectrogram' | 'playback' | 'signals' | 'evidence' | 'raw';
 
 let activeTab: AudioTab = 'overview';
 let selectedFile: File | null = null;
@@ -90,10 +90,12 @@ function renderEmptyState(): string {
 }
 
 function renderTabs(result: AudioAnalysisResponse): string {
+  const playableCount = result.artifacts.filter(a => ['reversed', 'slowed', 'sped-up', 'channel', 'difference-channel'].includes(a.kind)).length;
   const tabs: Array<[AudioTab, string, number | null]> = [
     ['overview', 'Overview', result.findings.length],
     ['spectrogram', 'Spectrogram', result.spectrogram ? 1 : 0],
-    ['signals', 'Signals', result.tones.dtmf_events.length + result.channels.length],
+    ['playback', 'Playback', playableCount + 1],
+    ['signals', 'Signals', result.tones.dtmf_events.length + result.channels.length + (result.sstv?.detected ? 1 : 0)],
     ['evidence', 'Evidence', result.flags.length + result.artifacts.length],
     ['raw', 'Raw Details', result.riff_chunks.length],
   ];
@@ -105,6 +107,7 @@ function renderTabs(result: AudioAnalysisResponse): string {
 function renderTab(result: AudioAnalysisResponse): string {
   switch (activeTab) {
     case 'spectrogram': return renderSpectrogram(result);
+    case 'playback': return renderPlayback(result);
     case 'signals': return renderSignals(result);
     case 'evidence': return renderEvidence(result);
     case 'raw': return renderRaw(result);
@@ -128,13 +131,14 @@ function renderOverview(result: AudioAnalysisResponse): string {
         <div class="kv-key">Extension</div><div class="kv-value"><span class="badge ${result.file.extension_matches ? 'badge-success' : 'badge-error'}">${result.file.extension_matches ? 'Consistent' : 'Mismatch'}</span></div>
         <div class="kv-key">SHA-256</div><div class="kv-value mono" style="word-break:break-all">${result.file.hashes.sha256}</div>
       </div></div></div>
-      <div class="panel"><div class="panel-header">Forensic Player</div><div class="panel-body">
-        ${sourceUrl ? `<audio id="audio-player" controls style="width:100%" src="${sourceUrl}"></audio>
-        <div class="flex items-center gap-4 mt-4" style="flex-wrap:wrap">
-          <label class="text-xs">Speed <select id="audio-speed" class="input input-sm"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="4">4x</option></select></label>
-          <label class="text-xs"><input id="audio-loop" type="checkbox"> Loop</label>
-        </div>` : '<div class="text-sm text-muted">Local audio preview unavailable.</div>'}
-      </div></div>
+      <div class="panel"><div class="panel-header">Quick Stats</div><div class="panel-body"><div class="kv-list">
+        <div class="kv-key">DTMF</div><div class="kv-value mono">${escapeHtml(result.tones.dtmf_sequence || 'Not detected')}</div>
+        <div class="kv-key">Morse</div><div class="kv-value mono">${escapeHtml(result.tones.morse_text || 'Not detected')}</div>
+        <div class="kv-key">SSTV</div><div class="kv-value">${result.sstv?.detected ? `<span class="badge badge-warning">${escapeHtml(result.sstv.mode || 'Detected')}</span>` : 'Not detected'}</div>
+        <div class="kv-key">LSB leads</div><div class="kv-value">${result.lsb_candidates.length}</div>
+        <div class="kv-key">Embedded files</div><div class="kv-value">${result.embedded_files.length}</div>
+        <div class="kv-key">Ultrasonic</div><div class="kv-value">${result.tones.ultrasonic_peak_hz ? `${result.tones.ultrasonic_peak_hz.toFixed(1)} Hz` : 'No strong lead'}</div>
+      </div></div></div>
     </div>
     ${renderFlags(result)}
     <div class="section-title mb-4">Notable Findings</div>
@@ -166,14 +170,55 @@ function severityColor(severity: AudioAnalysisResponse['findings'][number]['seve
 }
 
 function renderSpectrogram(result: AudioAnalysisResponse): string {
-  const artifact = result.artifacts.find(item => item.artifact_id === result.spectrogram?.artifact_id);
-  const url = artifact ? artifactUrl(artifact) : null;
+  const specArtifact = result.artifacts.find(item => item.artifact_id === result.spectrogram?.artifact_id);
+  const specUrl = specArtifact ? artifactUrl(specArtifact) : null;
+  const wfArtifact = result.artifacts.find(item => item.kind === 'waveform-image');
+  const wfUrl = wfArtifact ? artifactUrl(wfArtifact) : null;
   return `<div class="section"><div class="section-header"><div class="section-title">Spectrogram</div>${result.spectrogram ? `<span class="text-xs text-muted">FFT ${result.spectrogram.fft_size} / hop ${result.spectrogram.hop_size} / ${result.spectrogram.dynamic_range_db} dB</span>` : ''}</div>
     <div class="panel"><div class="panel-body">
-      ${url ? `<div style="overflow:auto;background:#050505"><img id="audio-spectrogram" src="${url}" alt="Forensic STFT spectrogram" style="display:block;width:100%;min-width:720px"></div>
+      ${specUrl ? `<div style="overflow:auto;background:#050505"><img id="audio-spectrogram" src="${specUrl}" alt="Forensic STFT spectrogram" style="display:block;width:100%;min-width:720px"></div>
       <label class="text-xs mt-4" style="display:flex;align-items:center;gap:8px">Contrast <input id="spectrogram-contrast" type="range" min="75" max="200" value="100"></label>` : '<div class="text-sm text-muted">No spectrogram was generated for this input.</div>'}
     </div></div>
+    ${wfUrl ? `<div class="panel mt-4"><div class="panel-header">Waveform</div><div class="panel-body"><div style="overflow:auto;background:#0c0c0c"><img src="${wfUrl}" alt="Time-domain waveform" style="display:block;width:100%;min-width:720px"></div></div></div>` : ''}
     ${result.spectrogram ? `<div class="grid-4 mt-4">${Object.entries(result.spectrogram.frequency_band_energy).map(([band, energy]) => `<div class="panel"><div class="panel-body"><div class="text-xs text-muted">${escapeHtml(band)}</div><div class="mono mt-4">${(energy * 100).toFixed(2)}%</div></div></div>`).join('')}</div>` : ''}
+  </div>`;
+}
+
+function renderPlayback(result: AudioAnalysisResponse): string {
+  const playerCards: Array<{ label: string; description: string; url: string | null }> = [];
+  // Original
+  playerCards.push({ label: 'Original', description: 'Original uploaded audio at normal speed.', url: sourceUrl });
+  // Reversed
+  const reversedArtifact = result.artifacts.find(a => a.kind === 'reversed');
+  playerCards.push({ label: 'Reversed', description: 'Audio played in reverse for hidden messages.', url: reversedArtifact ? artifactUrl(reversedArtifact) : null });
+  // Slowed
+  const slowedArtifact = result.artifacts.find(a => a.kind === 'slowed');
+  playerCards.push({ label: 'Slowed (0.5x)', description: 'Audio at half speed to reveal fast patterns.', url: slowedArtifact ? artifactUrl(slowedArtifact) : null });
+  // Sped-up
+  const spedUpArtifact = result.artifacts.find(a => a.kind === 'sped-up');
+  playerCards.push({ label: 'Sped Up (2x)', description: 'Audio at double speed to reveal slow patterns.', url: spedUpArtifact ? artifactUrl(spedUpArtifact) : null });
+  // Left channel
+  const leftArtifact = result.artifacts.find(a => a.kind === 'channel' && a.filename.startsWith('left'));
+  if (leftArtifact) playerCards.push({ label: 'Left Channel', description: 'Isolated left channel audio.', url: artifactUrl(leftArtifact) });
+  // Right channel
+  const rightArtifact = result.artifacts.find(a => a.kind === 'channel' && a.filename.startsWith('right'));
+  if (rightArtifact) playerCards.push({ label: 'Right Channel', description: 'Isolated right channel audio.', url: artifactUrl(rightArtifact) });
+  // Difference channel
+  const diffArtifact = result.artifacts.find(a => a.kind === 'difference-channel');
+  if (diffArtifact) playerCards.push({ label: 'L\u2212R Difference', description: 'Phase-cancellation difference between left and right channels.', url: artifactUrl(diffArtifact) });
+
+  return `<div class="section">
+    <div class="section-title mb-4">Audio Playback Variants</div>
+    <div class="text-xs text-muted mb-4">Listen to all generated audio variants directly. Each card plays an excerpt of up to 10 seconds.</div>
+    <div class="audio-playback-grid">
+      ${playerCards.map(card => `<div class="panel audio-player-card">
+        <div class="panel-header">${escapeHtml(card.label)}</div>
+        <div class="panel-body">
+          <div class="text-xs text-muted mb-4">${escapeHtml(card.description)}</div>
+          ${card.url ? `<audio controls style="width:100%" src="${card.url}" preload="none"></audio>` : '<div class="text-xs text-muted" style="opacity:0.5">Not available</div>'}
+        </div>
+      </div>`).join('')}
+    </div>
   </div>`;
 }
 
@@ -189,11 +234,17 @@ function renderSignals(result: AudioAnalysisResponse): string {
     <div class="panel"><div class="panel-header">Detected Signals</div><div class="panel-body"><div class="kv-list">
       <div class="kv-key">DTMF</div><div class="kv-value mono">${escapeHtml(result.tones.dtmf_sequence || 'Not detected')}</div>
       <div class="kv-key">Morse</div><div class="kv-value mono">${escapeHtml(result.tones.morse_text || 'Not detected')}</div>
+      <div class="kv-key">SSTV</div><div class="kv-value">${result.sstv?.detected ? `<span class="badge badge-warning">${escapeHtml(result.sstv.mode || 'Detected')}</span>${result.sstv.header_offset_seconds !== null ? ` <span class="text-xs text-muted">at ${result.sstv.header_offset_seconds.toFixed(3)}s</span>` : ''}` : 'Not detected'}</div>
       <div class="kv-key">Carrier</div><div class="kv-value">${result.tones.carrier_hz ? `${result.tones.carrier_hz.toFixed(1)} Hz` : 'None'}</div>
       <div class="kv-key">Ultrasonic</div><div class="kv-value">${result.tones.ultrasonic_peak_hz ? `${result.tones.ultrasonic_peak_hz.toFixed(1)} Hz` : 'No strong lead'}</div>
       <div class="kv-key">LSB leads</div><div class="kv-value">${result.lsb_candidates.length}</div>
     </div></div></div>
   </div>
+  ${result.sstv?.detected ? `<div class="panel mb-4" style="border-left:3px solid var(--warning)"><div class="panel-header"><span style="color:var(--warning)">SSTV Transmission</span><span class="mono">${Math.round((result.sstv.confidence) * 100)}%</span></div><div class="panel-body"><div class="kv-list">
+    <div class="kv-key">Mode</div><div class="kv-value">${escapeHtml(result.sstv.mode || 'Unknown')}</div>
+    <div class="kv-key">Header offset</div><div class="kv-value mono">${result.sstv.header_offset_seconds !== null ? result.sstv.header_offset_seconds.toFixed(4) + 's' : 'Unknown'}</div>
+    <div class="kv-key">Confidence</div><div class="kv-value mono">${(result.sstv.confidence * 100).toFixed(1)}%</div>
+  </div><div class="text-xs text-muted mt-4">Use an SSTV decoder (QSSTV, MMSSTV, or an online tool) to extract the hidden image.</div></div></div>` : ''}
   <div class="section-title mb-4">Channel Analysis</div>
   ${result.channels.length ? `<table class="data-table"><thead><tr><th>Channel</th><th>RMS</th><th>Peak</th><th>DC offset</th><th>Entropy</th><th>&gt;16 kHz</th></tr></thead><tbody>${result.channels.map(channel => `<tr><td>${escapeHtml(channel.channel)}</td><td class="mono">${channel.rms.toFixed(5)}</td><td class="mono">${channel.peak.toFixed(5)}</td><td class="mono">${channel.dc_offset.toFixed(5)}</td><td class="mono">${channel.entropy.toFixed(3)}</td><td class="mono">${(channel.high_frequency_ratio * 100).toFixed(2)}%</td></tr>`).join('')}</tbody></table>` : '<div class="text-sm text-muted">No decoded channels available.</div>'}
   </div>`;

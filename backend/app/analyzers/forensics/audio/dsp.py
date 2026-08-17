@@ -295,3 +295,165 @@ def wav_bytes(samples: np.ndarray, sample_rate: int) -> bytes:
         writer.setframerate(sample_rate)
         writer.writeframes(pcm16.tobytes())
     return output.getvalue()
+
+
+def resample_speed(samples: np.ndarray, sample_rate: int, speed: float) -> bytes:
+    """Generate a WAV at a different playback speed by changing the sample rate.
+
+    A speed of 0.5 halves the rate (slowed), 2.0 doubles it (sped-up).
+    The returned bytes are a valid 16-bit WAV.
+    """
+    new_rate = max(1, int(round(sample_rate / speed)))
+    return wav_bytes(samples, new_rate)
+
+
+@dataclass(frozen=True, slots=True)
+class SstvResult:
+    detected: bool
+    mode: str | None
+    confidence: float
+    header_offset_seconds: float | None
+
+
+_SSTV_MODES: dict[int, str] = {
+    44: "Martin M1",
+    40: "Martin M2",
+    60: "Scottie S1",
+    56: "Scottie S2",
+    36: "Scottie DX",
+    8: "Robot 36",
+    4: "Robot 72",
+    12: "Robot 12",
+}
+
+
+def detect_sstv_header(pcm: PcmAudio) -> SstvResult:
+    """Detect a calibration header used in Slow-Scan Television (SSTV) transmissions.
+
+    SSTV signals begin with:
+      1. A 300 ms leader tone at 1900 Hz
+      2. A 10 ms break at 1200 Hz
+      3. A 300 ms VIS start bit at 1900 Hz
+      4. Eight 30 ms VIS data bits encoded as 1100 Hz (1) / 1300 Hz (0)
+      5. A 30 ms stop bit at 1200 Hz
+
+    We scan the decoded audio with a sliding window looking for the leader→break
+    pattern, then attempt to decode the VIS code.
+    """
+    mono = pcm.samples.mean(axis=1)
+    if len(mono) < pcm.sample_rate:
+        return SstvResult(False, None, 0.0, None)
+
+    # Use up to the first 60 seconds for the header search.
+    search_limit = min(len(mono), pcm.sample_rate * 60)
+    mono = mono[:search_limit]
+
+    window_ms = 20
+    window = max(64, int(pcm.sample_rate * window_ms / 1000))
+    hop = window // 2
+    hanning = np.hanning(window)
+
+    def dominant_freq(start: int) -> float:
+        segment = mono[start : start + window]
+        if len(segment) < window:
+            return 0.0
+        windowed = (segment - np.mean(segment)) * hanning
+        spectrum = np.abs(np.fft.rfft(windowed))
+        freqs = np.fft.rfftfreq(window, 1 / pcm.sample_rate)
+        mask = (freqs >= 800) & (freqs <= 2500)
+        if not np.any(mask):
+            return 0.0
+        return float(freqs[mask][np.argmax(spectrum[mask])])
+
+    # Scan for the 1900 Hz leader.
+    leader_windows = max(1, int(0.15 * pcm.sample_rate / hop))  # ~150 ms worth
+    break_windows = max(1, int(0.008 * pcm.sample_rate / hop))  # ~8 ms worth
+
+    positions = list(range(0, len(mono) - window, hop))
+    if not positions:
+        return SstvResult(False, None, 0.0, None)
+
+    freqs_at = [dominant_freq(p) for p in positions]
+
+    for i in range(len(freqs_at) - leader_windows - break_windows - leader_windows):
+        # Check leader region (~1900 Hz)
+        leader1 = freqs_at[i : i + leader_windows]
+        if not all(1850 <= f <= 1950 for f in leader1):
+            continue
+        # Check break region (~1200 Hz)
+        break_start = i + leader_windows
+        break_region = freqs_at[break_start : break_start + break_windows]
+        if not all(1150 <= f <= 1250 for f in break_region):
+            continue
+        # Check second leader
+        leader2_start = break_start + break_windows
+        leader2 = freqs_at[leader2_start : leader2_start + leader_windows]
+        if not all(1850 <= f <= 1950 for f in leader2):
+            continue
+
+        header_offset = positions[i] / pcm.sample_rate
+
+        # Try to decode VIS code
+        vis_start_sample = positions[leader2_start + leader_windows] if leader2_start + leader_windows < len(positions) else None
+        vis_code = None
+        mode_name = None
+
+        if vis_start_sample is not None:
+            bit_duration = int(0.03 * pcm.sample_rate)
+            bits = []
+            for bit_idx in range(8):
+                bit_center = vis_start_sample + int(bit_duration * (bit_idx + 0.5))
+                if bit_center + window > len(mono):
+                    break
+                freq = dominant_freq(bit_center)
+                bits.append(1 if abs(freq - 1100) < abs(freq - 1300) else 0)
+
+            if len(bits) == 8:
+                vis_code = sum(b << idx for idx, b in enumerate(bits[:7]))
+                mode_name = _SSTV_MODES.get(vis_code, f"Unknown VIS {vis_code}")
+
+        confidence = 0.85 if mode_name and mode_name.startswith("Unknown") else 0.95 if mode_name else 0.75
+        return SstvResult(True, mode_name, confidence, round(header_offset, 4))
+
+    return SstvResult(False, None, 0.0, None)
+
+
+def render_waveform(pcm: PcmAudio, *, width: int = 1200, height: int = 300) -> bytes:
+    """Render a time-domain waveform as a PNG image."""
+    mono = pcm.samples.mean(axis=1)
+    if len(mono) < 2:
+        raise ValueError("Not enough samples for a waveform image.")
+
+    # Down-sample to width bins by taking min/max per bin.
+    bin_size = max(1, len(mono) // width)
+    usable = mono[: bin_size * width]
+    reshaped = usable.reshape(width, bin_size)
+    mins = reshaped.min(axis=1)
+    maxs = reshaped.max(axis=1)
+
+    # Create the image.
+    img = np.full((height, width, 3), 12, dtype=np.uint8)  # Dark background
+    mid = height // 2
+
+    for x in range(width):
+        y_min = int(mid - maxs[x] * (mid - 4))
+        y_max = int(mid - mins[x] * (mid - 4))
+        y_min = max(0, min(height - 1, y_min))
+        y_max = max(0, min(height - 1, y_max))
+        if y_min > y_max:
+            y_min, y_max = y_max, y_min
+        # Gradient: cyan core, darker edges
+        for y in range(y_min, y_max + 1):
+            distance = abs(y - mid) / max(1, mid)
+            r = int(20 + 40 * (1 - distance))
+            g = int(180 + 75 * (1 - distance))
+            b = int(200 + 55 * (1 - distance))
+            img[y, x] = [r, g, b]
+
+    # Draw center line
+    img[mid, :] = [60, 60, 80]
+
+    image = Image.fromarray(img, mode="RGB")
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()

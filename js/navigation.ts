@@ -63,7 +63,7 @@ export const navigationSections: NavigationSection[] = [
         child('forensics', 'files', 'File / Archive Analysis'),
         child('forensics', 'image-steganography', 'Image / Steganography', 'stego', 'overview'),
         child('forensics', 'audio', 'Audio Analyzer', 'audio', 'audio'),
-        child('forensics', 'disk-partition', 'Disk / Partition'),
+        child('forensics', 'disk-partition', 'Disk / Partition', 'disk', 'overview'),
       ] },
       { id: 'osint', label: 'OSINT', icon: 'osint', children: [
         child('osint', 'website', 'Website OSINT'),

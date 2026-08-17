@@ -17,6 +17,9 @@ import numpy as np
 from app.analyzers.forensics.audio.context import AudioContext, PcmAudio
 from app.analyzers.forensics.audio.dsp import (
     channel_metrics,
+    detect_sstv_header,
+    render_waveform,
+    resample_speed,
     shannon_entropy,
     spectrogram,
     tone_analysis,
@@ -39,6 +42,7 @@ from app.schemas.audio import (
     EmbeddedAudioFile,
     LsbCandidate,
     SpectrogramReport,
+    SstvDetection,
     ToneAnalysis,
 )
 
@@ -454,6 +458,7 @@ class AudioAnalysisEngine(BaseAnalyzer[AudioInput, AudioAnalysisResponse]):
         correlation = None
         spectrum_report = None
         tones = ToneAnalysis()
+        sstv_result = None
         lsb_candidates: list[LsbCandidate] = []
         findings: list[AudioFinding] = []
         recommendations: list[str] = []
@@ -492,6 +497,40 @@ class AudioAnalysisEngine(BaseAnalyzer[AudioInput, AudioAnalysisResponse]):
                 tones = tone_analysis(pcm, ultrasonic_peak=spectrum.ultrasonic_peak_hz, ultrasonic_ratio=spectrum.ultrasonic_ratio)
             except (ValueError, MemoryError):
                 context.errors.append("Spectrogram generation was skipped because the decoded signal was too short or exceeded resources.")
+
+            # Waveform image
+            try:
+                waveform_png = render_waveform(pcm)
+                wf_artifact = _artifact("waveform-image", "waveform.png", "image/png", "Time-domain waveform visualization of the analyzed signal.", waveform_png, self.policy)
+                artifacts.append(wf_artifact)
+            except (ValueError, MemoryError):
+                context.errors.append("Waveform image generation was skipped due to insufficient data or resources.")
+
+            # SSTV detection
+            try:
+                sstv = detect_sstv_header(pcm)
+                if sstv.detected:
+                    sstv_result = SstvDetection(
+                        detected=True,
+                        mode=sstv.mode,
+                        confidence=sstv.confidence,
+                        header_offset_seconds=sstv.header_offset_seconds,
+                    )
+                    severity = "high" if sstv.mode and not sstv.mode.startswith("Unknown") else "medium"
+                    findings.append(AudioFinding(
+                        severity=severity,
+                        title="SSTV transmission detected",
+                        confidence=sstv.confidence,
+                        description=f"Slow-Scan Television header found{f' (mode: {sstv.mode})' if sstv.mode else ''}.",
+                        location=f"{sstv.header_offset_seconds:.3f}s" if sstv.header_offset_seconds is not None else None,
+                        method="1900/1200 Hz leader-break pattern and VIS code analysis",
+                        recommendation="Decode the image using an SSTV decoder (e.g., QSSTV, MMSSTV, or an online tool).",
+                        evidence={"mode": sstv.mode, "header_offset_seconds": sstv.header_offset_seconds},
+                    ))
+                    recommendations.append("Use an SSTV decoder to extract the hidden image from this audio.")
+            except (ValueError, MemoryError):
+                context.errors.append("SSTV detection was skipped due to insufficient data or resources.")
+
             if tones.ultrasonic_energy_ratio >= 0.02 and tones.ultrasonic_peak_hz:
                 findings.append(AudioFinding(severity="medium", title="Structured high-frequency energy", confidence=min(0.95, 0.65 + tones.ultrasonic_energy_ratio * 2), description=f"{tones.ultrasonic_energy_ratio:.2%} of spectral energy lies above 16 kHz, peaking near {tones.ultrasonic_peak_hz:.1f} Hz.", location="16 kHz to Nyquist", method="STFT frequency-band energy comparison", recommendation="Inspect the high-frequency portion of the generated spectrogram."))
                 recommendations.append(f"Inspect the spectrogram around {tones.ultrasonic_peak_hz:.0f} Hz for structured ultrasonic content.")
@@ -511,12 +550,17 @@ class AudioAnalysisEngine(BaseAnalyzer[AudioInput, AudioAnalysisResponse]):
                 findings.append(AudioFinding(severity="medium", title="Structured PCM bit-plane data", confidence=0.75 if best.recognized_type else 0.6, description=f"Bit plane {best.bit_plane} in {best.channel} produced {'a ' + best.recognized_type if best.recognized_type else f'{best.printable_ratio:.1%} printable data'}.", method="PCM bit-plane extraction and content scoring", recommendation="Inspect the highest-ranked LSB extraction artifact; this is supporting evidence, not proof of steganography."))
 
             excerpt_frames = min(pcm.frames, pcm.sample_rate * 10)
-            if pcm.channels >= 2 and (correlation is None or correlation < 0.95):
+            # Always generate channel artifacts for stereo audio
+            if pcm.channels >= 2:
                 for index, label in ((0, "left"), (1, "right")):
                     artifacts.append(_artifact("channel", f"{label}_channel_excerpt.wav", "audio/wav", f"First ten seconds of the isolated {label} channel.", wav_bytes(pcm.samples[:excerpt_frames, index], pcm.sample_rate), self.policy))
                 difference = np.clip(pcm.samples[:excerpt_frames, 0] - pcm.samples[:excerpt_frames, 1], -1, 1)
                 artifacts.append(_artifact("difference-channel", "difference_channel_excerpt.wav", "audio/wav", "First ten seconds of L-R phase-cancellation analysis.", wav_bytes(difference, pcm.sample_rate), self.policy))
             artifacts.append(_artifact("reversed", "reversed_excerpt.wav", "audio/wav", "First ten seconds of analyzed audio reversed for manual listening.", wav_bytes(pcm.samples[:excerpt_frames][::-1], pcm.sample_rate), self.policy))
+
+            # Slowed (0.5x) and sped-up (2x) artifacts
+            artifacts.append(_artifact("slowed", "slowed_0.5x_excerpt.wav", "audio/wav", "First ten seconds of audio at half speed (0.5x) for manual inspection.", resample_speed(pcm.samples[:excerpt_frames], pcm.sample_rate, 0.5), self.policy))
+            artifacts.append(_artifact("sped-up", "spedup_2x_excerpt.wav", "audio/wav", "First ten seconds of audio at double speed (2x) for manual inspection.", resample_speed(pcm.samples[:excerpt_frames], pcm.sample_rate, 2.0), self.policy))
 
         for candidate in flag_candidates:
             if not any(item.title.startswith("Potential flag") for item in findings):
@@ -586,6 +630,7 @@ class AudioAnalysisEngine(BaseAnalyzer[AudioInput, AudioAnalysisResponse]):
             channel_correlation=correlation,
             spectrogram=spectrum_report,
             tones=tones,
+            sstv=sstv_result,
             lsb_candidates=lsb_candidates,
             embedded_files=embedded_files,
             flags=unique_flags,

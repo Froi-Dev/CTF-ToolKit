@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.schemas.forensics import ForensicsTriageResponse
 from app.schemas.network import NetworkAnalysisResponse
 from app.schemas.stego import StegoAnalysisResponse
+from app.schemas.crypto_triage import CryptoTriageResponse
 
 
 TriageStatus = Literal["completed", "skipped", "unavailable", "failed"]
@@ -14,7 +15,7 @@ TriageStatus = Literal["completed", "skipped", "unavailable", "failed"]
 
 class AnalyzerRun(BaseModel):
     analyzer: str
-    category: Literal["forensics", "steganography", "network"]
+    category: Literal["forensics", "steganography", "network", "crypto"]
     status: TriageStatus
     duration_ms: int = Field(ge=0)
     message: str
@@ -34,6 +35,7 @@ class CapabilityStatus(BaseModel):
         "image_structure",
         "lsb",
         "network_protocols",
+        "crypto_triage",
     ]
     label: str
     analyzer: str
@@ -57,5 +59,6 @@ class AutoTriageResponse(BaseModel):
     forensics: ForensicsTriageResponse
     steganography: StegoAnalysisResponse | None = None
     network: NetworkAnalysisResponse | None = None
+    crypto: CryptoTriageResponse | None = None
     warnings: list[str]
 
