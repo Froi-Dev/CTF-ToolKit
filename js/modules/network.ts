@@ -314,7 +314,14 @@ function renderPackets(result: NetworkAnalysisResponse): string {
   return `<div class="section"><div class="section-header"><div class="section-title">Packet metadata</div><span class="text-xs text-muted">${limitNote}</span></div>
     <table class="data-table"><thead><tr><th>No.</th><th>Time</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Length</th><th>Info</th></tr></thead><tbody>
       ${packets.length ? packets.map(packet => `<tr class="clickable ${selected?.number === packet.number ? 'network-row-selected' : ''}" data-packet-frame="${packet.number}"><td class="mono">${packet.number}</td><td class="mono">${escapeHtml(formatTimestamp(packet.timestamp))}</td><td class="mono">${escapeHtml(packet.source || '—')}${packet.source_port === null ? '' : `:${packet.source_port}`}</td><td class="mono">${escapeHtml(packet.destination || '—')}${packet.destination_port === null ? '' : `:${packet.destination_port}`}</td><td>${escapeHtml(packet.displayed_protocol)}</td><td>${formatBytes(packet.wire_length)}</td><td class="text-muted">${escapeHtml(packet.info)}</td></tr>`).join('') : emptyTableRow(7, 'No packets were decoded from the capture.')}
-    </tbody></table></div>${selected ? `<div class="panel"><div class="panel-header">Frame ${selected.number} details</div><div class="panel-body"><div class="kv-list"><div class="kv-key">Timestamp</div><div class="kv-value mono">${escapeHtml(formatTimestamp(selected.timestamp))}</div><div class="kv-key">Endpoints</div><div class="kv-value mono">${escapeHtml(selected.source || 'unknown')}${selected.source_port === null ? '' : `:${selected.source_port}`} &rarr; ${escapeHtml(selected.destination || 'unknown')}${selected.destination_port === null ? '' : `:${selected.destination_port}`}</div><div class="kv-key">Protocol stack</div><div class="kv-value mono">${escapeHtml(selected.protocol_stack.join(' -> '))}</div><div class="kv-key">Payload</div><div class="kv-value">${formatBytes(selected.payload_length)}</div><div class="kv-key">Wireshark</div><div class="kv-value mono">frame.number == ${selected.number}</div></div></div></div>` : ''}`;
+    </tbody></table></div>${selected ? renderPacketViewer(selected) : ''}`;
+}
+
+function renderPacketViewer(packet: NetworkAnalysisResponse['packets'][number]): string {
+  return `<dialog class="detail-dialog" id="network-packet-dialog" aria-labelledby="network-packet-dialog-title">
+    <div class="detail-dialog-header"><div><div class="section-title" id="network-packet-dialog-title">Frame ${packet.number} details</div><div class="text-xs text-muted mt-2">Packet metadata and Wireshark reference</div></div><button class="detail-dialog-close" data-close-network-dialog aria-label="Close packet details">&times;</button></div>
+    <div class="detail-dialog-body"><div class="kv-list"><div class="kv-key">Timestamp</div><div class="kv-value mono">${escapeHtml(formatTimestamp(packet.timestamp))}</div><div class="kv-key">Endpoints</div><div class="kv-value mono">${escapeHtml(packet.source || 'unknown')}${packet.source_port === null ? '' : `:${packet.source_port}`} &rarr; ${escapeHtml(packet.destination || 'unknown')}${packet.destination_port === null ? '' : `:${packet.destination_port}`}</div><div class="kv-key">Protocol stack</div><div class="kv-value mono">${escapeHtml(packet.protocol_stack.join(' -> '))}</div><div class="kv-key">Payload</div><div class="kv-value">${formatBytes(packet.payload_length)}</div><div class="kv-key">Wireshark</div><div class="kv-value mono">frame.number == ${packet.number}</div></div></div>
+  </dialog>`;
 }
 
 function renderApplication(result: NetworkAnalysisResponse): string {
@@ -340,7 +347,7 @@ function renderStreams(result: NetworkAnalysisResponse): string {
   return `<div class="section"><div class="section-header"><div class="section-title">TCP / UDP stream discovery</div><span class="text-xs text-muted">Select a stream to inspect chronological raw reconstruction</span></div>
     <table class="data-table"><thead><tr><th>Stream</th><th>Endpoint A</th><th>Endpoint B</th><th>Protocols</th><th>Packets</th><th>Wire bytes</th><th>Reconstructed</th><th>State</th></tr></thead><tbody>
       ${streams.length ? streams.map(({ protocol, stream }) => `<tr class="clickable ${selected?.protocol === protocol && selected.stream.stream_id === stream.stream_id ? 'network-row-selected' : ''}" data-stream="${stream.stream_id}" data-stream-protocol="${protocol}"><td class="mono">${protocol.toUpperCase()} #${stream.stream_id}</td><td class="mono">${escapeHtml(stream.endpoint_a)}</td><td class="mono">${escapeHtml(stream.endpoint_b)}</td><td>${escapeHtml(stream.application_protocols.join(', ') || protocol.toUpperCase())}</td><td>${stream.packet_count.toLocaleString()}</td><td>${formatBytes(stream.wire_bytes)}</td><td>${formatBytes(stream.reconstructed_bytes)}</td><td>${protocol === 'tcp' && (stream as TcpStream).reset_seen ? '<span class="badge badge-warning">RST</span>' : protocol === 'tcp' && (stream as TcpStream).fin_seen ? '<span class="badge badge-success">FIN</span>' : '<span class="badge badge-info">Observed</span>'}</td></tr>`).join('') : emptyTableRow(8, 'No TCP or UDP streams were discovered.')}
-    </tbody></table></div>${selected ? renderStreamViewer(selected.stream, selected.protocol) : '<div class="panel"><div class="panel-body text-sm text-muted">Select a reconstructed stream above.</div></div>'}`;
+    </tbody></table></div>${selected ? renderStreamViewer(selected.stream, selected.protocol) : ''}`;
 }
 
 function decodeStreamPrefix(stream: TcpStream | UdpStream): Uint8Array {
@@ -357,12 +364,28 @@ function decodeStreamPrefix(stream: TcpStream | UdpStream): Uint8Array {
 
 function renderStreamViewer(stream: TcpStream | UdpStream, protocol: 'tcp' | 'udp'): string {
   const content = activeStreamView === 'hex' ? renderHexStream(stream) : renderAsciiStream(stream);
-  return `<div class="section"><div class="section-header"><div class="section-title">Reconstructed ${protocol.toUpperCase()} stream #${stream.stream_id}</div><span class="text-xs text-muted">${escapeHtml(stream.endpoint_a)} ↔ ${escapeHtml(stream.endpoint_b)}${stream.reconstruction_truncated ? ' · backend limit reached' : ''}</span></div>
+  return `<dialog class="detail-dialog detail-dialog-wide" id="network-stream-dialog" aria-labelledby="network-stream-dialog-title">
+    <div class="detail-dialog-header"><div><div class="section-title" id="network-stream-dialog-title">Reconstructed ${protocol.toUpperCase()} stream #${stream.stream_id}</div><div class="text-xs text-muted mt-2">${escapeHtml(stream.endpoint_a)} ↔ ${escapeHtml(stream.endpoint_b)}${stream.reconstruction_truncated ? ' · backend limit reached' : ''}</div></div><button class="detail-dialog-close" data-close-network-dialog aria-label="Close stream content">&times;</button></div>
+    <div class="detail-dialog-body">
     <div class="raw-viewer"><div class="raw-viewer-toolbar"><div class="tab-bar" style="border:none;margin:0">
       <div class="tab-item ${activeStreamView === 'ascii' ? 'active' : ''}" data-stream-view="ascii" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">ASCII</div>
       <div class="tab-item ${activeStreamView === 'hex' ? 'active' : ''}" data-stream-view="hex" style="padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs)">Hex</div>
     </div><div class="topbar-spacer"></div><button class="btn btn-primary btn-sm" data-send-stream="${stream.stream_id}" data-send-stream-protocol="${protocol}">Send Raw to Decryptor</button><span class="text-xs text-muted">Rendering up to ${formatBytes(MAX_STREAM_RENDER_BYTES)}</span></div>
-    <div class="raw-viewer-content">${content}</div></div></div>`;
+    <div class="raw-viewer-content">${content}</div></div></div>
+  </dialog>`;
+}
+
+function openNetworkDialog(): void {
+  const dialog = document.querySelector<HTMLDialogElement>('#network-page .detail-dialog');
+  if (!dialog) return;
+  dialog.addEventListener('close', () => {
+    if (dialog.id === 'network-stream-dialog') selectedStreamId = null;
+    if (dialog.id === 'network-packet-dialog') selectedPacketNumber = null;
+  });
+  dialog.addEventListener('click', event => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.showModal();
 }
 
 function renderAsciiStream(stream: TcpStream | UdpStream): string {
@@ -479,6 +502,9 @@ function bindEvents(): void {
       renderShell();
     });
   });
+  document.querySelectorAll<HTMLButtonElement>('[data-close-network-dialog]').forEach(button => {
+    button.addEventListener('click', () => button.closest<HTMLDialogElement>('dialog')?.close());
+  });
   document.querySelectorAll<HTMLElement>('[data-stream]').forEach(row => {
     row.addEventListener('click', () => {
       selectedStreamId = Number(row.dataset.stream);
@@ -513,6 +539,7 @@ function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-file-id]').forEach(button => {
     button.addEventListener('click', () => downloadTransferredFile(button.dataset.fileId || ''));
   });
+  openNetworkDialog();
 }
 
 function selectCapture(file: File | null): void {
@@ -561,7 +588,7 @@ async function runAnalysis(): Promise<void> {
       progressId,
     );
     selectedStreamProtocol = latestResponse.tcp_streams.length ? 'tcp' : 'udp';
-    selectedStreamId = latestResponse.tcp_streams[0]?.stream_id ?? latestResponse.udp_streams[0]?.stream_id ?? null;
+    selectedStreamId = null;
     selectedTargetId = latestResponse.investigation_targets[0]?.id ?? null;
     activeTab = latestResponse.investigation_summary.outcome === 'solved' ? 'overview' : 'investigate';
     statusMessage = `Analysis ${latestResponse.analysis_id}`;

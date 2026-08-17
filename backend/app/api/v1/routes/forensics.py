@@ -21,9 +21,10 @@ async def triage_file(
         UploadFile,
         File(description="A hostile artifact to inspect without executing it."),
     ],
+    custom_flag_regex: Annotated[str | None, Form(max_length=256)] = None,
 ) -> ForensicsTriageResponse:
     """Run bounded static file and forensics triage on one uploaded artifact."""
-    return await service.triage(file)
+    return await service.triage(file, custom_flag_regex=custom_flag_regex)
 
 
 @router.post("/audio/analyze", response_model=AudioAnalysisResponse)

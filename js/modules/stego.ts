@@ -6,7 +6,7 @@ import {
 } from '../api/stego.ts';
 import { icons } from '../data.ts';
 
-type StegoTab = 'zsteg' | 'strings' | 'lsb' | 'metadata';
+type StegoTab = 'zsteg' | 'strings' | 'lsb' | 'msb' | 'metadata';
 type InspectorView = 'text' | 'hex' | 'binary' | 'raw';
 
 let activeTab: StegoTab = 'zsteg';
@@ -61,7 +61,7 @@ function renderShell(): void {
   const result = latestResponse;
   const subtitle = result
     ? `${escapeHtml(result.original_filename)} · ${escapeHtml(result.image.format)} · ${result.image.width}x${result.image.height} · ${formatBytes(result.size)}`
-    : 'Native bit-plane extraction, ranked steganography findings, structure, metadata, QR, and carving';
+    : 'Native LSB/MSB bit-plane extraction, ExifTool metadata, ranked findings, structure, and carving';
   main.innerHTML = `<div class="main-content-wide">
     <div class="page-header">
       <div><div class="page-title">ZSteg</div><div class="page-subtitle">${subtitle}</div></div>
@@ -91,7 +91,7 @@ function renderShell(): void {
 function renderEmptyState(): string {
   return `<div class="section"><div class="panel"><div class="panel-body">
     <div class="section-title mb-4">No image analyzed</div>
-    <div class="text-sm text-muted">Choose an image, then review ZSteg results, extracted strings, LSB streams, and metadata.</div>
+    <div class="text-sm text-muted">Choose an image, then review ZSteg results, extracted strings, LSB/MSB streams, and ExifTool metadata.</div>
   </div></div></div>`;
 }
 
@@ -100,7 +100,8 @@ function renderTabs(result: StegoAnalysisResponse): string {
     ['zsteg', 'ZSteg', result.findings.length],
     ['strings', 'Strings', null],
     ['lsb', 'LSB', result.lsb.filter(item => item.suspicious).length],
-    ['metadata', 'Meta Data', result.metadata.length],
+    ['msb', 'MSB', result.msb.filter(item => item.suspicious).length],
+    ['metadata', 'Metadata', result.metadata_analysis.all_metadata.length || result.metadata.length],
   ];
   return `<div class="tab-bar" id="stego-tabs">${tabs.map(([id, label, count]) => `
     <div class="tab-item ${activeTab === id ? 'active' : ''}" data-tab="${id}">${label}${count === null ? '' : ` <span class="tab-count">${count}</span>`}</div>`).join('')}
@@ -111,6 +112,7 @@ function renderTab(result: StegoAnalysisResponse): string {
   switch (activeTab) {
     case 'strings': return renderStrings(result);
     case 'lsb': return renderLsb(result);
+    case 'msb': return renderMsb(result);
     case 'metadata': return renderMetadata(result);
     default: return renderZsteg(result);
   }
@@ -154,6 +156,11 @@ function renderStrings(result: StegoAnalysisResponse): string {
       source: `lsb:${item.stream}`, printable: item.printable_ratio, value: item.preview_ascii,
     });
   });
+  result.msb.forEach(item => {
+    if (item.preview_ascii && item.printable_ratio >= 0.5) rows.set(`msb:${item.stream}:${item.preview_ascii}`, {
+      source: `msb:${item.stream}`, printable: item.printable_ratio, value: item.preview_ascii,
+    });
+  });
   return `<div class="section"><div class="section-title mb-4">Strings</div>${rows.size
     ? `<table class="data-table"><thead><tr><th>Source</th><th>Printable</th><th>String</th></tr></thead><tbody>${[...rows.values()].map(item => `<tr><td class="mono">${escapeHtml(item.source)}</td><td>${percent(item.printable)}</td><td class="mono" style="word-break:break-all">${escapeHtml(item.value.slice(0, 500))}</td></tr>`).join('')}</tbody></table>`
     : '<div class="text-sm text-muted">No ranked printable strings were extracted.</div>'}</div>`;
@@ -164,6 +171,15 @@ function renderLsb(result: StegoAnalysisResponse): string {
   return `<div class="section"><div class="section-title mb-4">LSB</div>
     <div class="text-xs text-muted mb-4"><span class="mono">b1,b,lsb,xy</span> = 1 bit · blue channel · least-significant bit · XY order.</div>
     <table class="data-table mb-4"><thead><tr><th>Stream</th><th>Bytes</th><th>Printable</th><th>Entropy</th><th>Preview</th></tr></thead><tbody>${result.lsb.map(item => `<tr><td class="mono">${escapeHtml(item.stream)}</td><td>${formatBytes(item.extracted_bytes)}</td><td>${percent(item.printable_ratio)}</td><td>${item.entropy.bits_per_byte.toFixed(4)}</td><td class="mono" style="word-break:break-all">${escapeHtml(item.preview_ascii)}</td></tr>`).join('')}</tbody></table>
+    ${methods.length ? `<table class="data-table"><thead><tr><th>Method</th><th>Order</th><th>Detected</th><th></th></tr></thead><tbody>${methods.map(item => `<tr><td class="mono">${escapeHtml(item.method?.notation)}</td><td>${escapeHtml(item.method?.byte_bit_order)}</td><td>${escapeHtml(item.detected_type)}</td><td><button class="btn btn-secondary btn-sm" data-inspect="${item.finding_id}">Inspect</button></td></tr>`).join('')}</tbody></table>` : ''}
+  </div>`;
+}
+
+function renderMsb(result: StegoAnalysisResponse): string {
+  const methods = result.findings.filter(item => item.method?.bit_order === 'msb');
+  return `<div class="section"><div class="section-title mb-4">MSB</div>
+    <div class="text-xs text-muted mb-4"><span class="mono">b1,b,msb,xy</span> = 1 bit · blue channel · most-significant bit · XY order.</div>
+    <table class="data-table mb-4"><thead><tr><th>Stream</th><th>Bytes</th><th>Printable</th><th>Entropy</th><th>Preview</th></tr></thead><tbody>${result.msb.map(item => `<tr><td class="mono">${escapeHtml(item.stream)}</td><td>${formatBytes(item.extracted_bytes)}</td><td>${percent(item.printable_ratio)}</td><td>${item.entropy.bits_per_byte.toFixed(4)}</td><td class="mono" style="word-break:break-all">${escapeHtml(item.preview_ascii)}</td></tr>`).join('')}</tbody></table>
     ${methods.length ? `<table class="data-table"><thead><tr><th>Method</th><th>Order</th><th>Detected</th><th></th></tr></thead><tbody>${methods.map(item => `<tr><td class="mono">${escapeHtml(item.method?.notation)}</td><td>${escapeHtml(item.method?.byte_bit_order)}</td><td>${escapeHtml(item.detected_type)}</td><td><button class="btn btn-secondary btn-sm" data-inspect="${item.finding_id}">Inspect</button></td></tr>`).join('')}</tbody></table>` : ''}
   </div>`;
 }
@@ -184,7 +200,6 @@ function renderOverview(result: StegoAnalysisResponse): string {
       <div class="kv-key">Pixel variants</div><div class="kv-value mono">${result.pixel_scan?.candidates_evaluated ?? 0}</div>
       <div class="kv-key">Unique streams</div><div class="kv-value mono">${result.pixel_scan?.unique_streams ?? 0}</div>
       <div class="kv-key">Hidden noise</div><div class="kv-value mono">${result.pixel_scan?.noise_hidden ?? 0}</div>
-      <div class="kv-key">QR / barcodes</div><div class="kv-value mono">${result.barcodes.length}</div>
     </div></div></div><div class="panel"><div class="panel-body"><div class="kv-list">
       <div class="kv-key">Trailing data</div><div class="kv-value">${badge(result.trailing_bytes.present, formatBytes(result.trailing_bytes.size), 'None')}</div>
       <div class="kv-key">Embedded signatures</div><div class="kv-value mono">${result.signatures.length}</div>
@@ -241,7 +256,7 @@ function renderStructure(result: StegoAnalysisResponse): string {
 function renderPlanes(result: StegoAnalysisResponse): string {
   const channels = [...new Set(result.bit_plane_visuals.map(item => item.channel))];
   return `<div class="section"><div class="section-title mb-4">Visual Bit Planes</div><div class="text-xs text-muted mb-4">White pixels have a 1 in the selected channel bit; black pixels have a 0. Open the image in a new tab for closer inspection.</div>
-    ${channels.map(channel => `<div class="panel mb-4"><div class="panel-header">${escapeHtml(channel)} channel</div><div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px">${result.bit_plane_visuals.filter(item => item.channel === channel).map(item => `<a href="data:image/png;base64,${item.png_base64}" target="_blank" rel="noopener" style="text-decoration:none"><div class="text-xs mono mb-4">${item.label} · ones ${percent(item.one_ratio)}</div><img src="data:image/png;base64,${item.png_base64}" alt="${item.label}" style="width:100%;image-rendering:pixelated;border:1px solid var(--border)">${item.qr_payloads.length ? `<div class="text-xs mt-4" style="color:var(--success)">QR: ${escapeHtml(item.qr_payloads.join(', '))}</div>` : ''}</a>`).join('')}</div></div>`).join('')}
+    ${channels.map(channel => `<div class="panel mb-4"><div class="panel-header">${escapeHtml(channel)} channel</div><div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px">${result.bit_plane_visuals.filter(item => item.channel === channel).map(item => `<a href="data:image/png;base64,${item.png_base64}" target="_blank" rel="noopener" style="text-decoration:none"><div class="text-xs mono mb-4">${item.label} · ones ${percent(item.one_ratio)}</div><img src="data:image/png;base64,${item.png_base64}" alt="${item.label}" style="width:100%;image-rendering:pixelated;border:1px solid var(--border)"></a>`).join('')}</div></div>`).join('')}
   </div>`;
 }
 
@@ -260,7 +275,9 @@ function renderCarving(result: StegoAnalysisResponse): string {
 }
 
 function renderMetadata(result: StegoAnalysisResponse): string {
-  return `<div class="section"><div class="section-title mb-4">Metadata Analysis</div><div class="panel"><div class="panel-body"><div class="kv-list">${result.metadata.map(item => `<div class="kv-key">${escapeHtml(item.source)} · ${escapeHtml(item.key)}</div><div class="kv-value mono" style="word-break:break-all">${escapeHtml(item.value)}</div>`).join('')}</div></div></div>
+  const deep = result.metadata_analysis;
+  const categories = Object.entries(deep.categories).map(([category, entries]) => `<details class="panel mb-4"><summary class="panel-header" style="cursor:pointer">${escapeHtml(category)} · ${entries.length}</summary><div class="panel-body"><div class="kv-list">${entries.map(item => `<div class="kv-key">${escapeHtml(item.key)}</div><div class="kv-value mono" style="word-break:break-all">${escapeHtml(item.display_value)}</div>`).join('')}</div></div></details>`).join('');
+  return `<div class="section"><div class="section-header"><div><div class="section-title">ExifTool Metadata Analysis</div><div class="text-sm text-muted mt-4">${escapeHtml(deep.summary)}</div></div><span class="badge ${deep.tool_available ? 'badge-success' : 'badge-error'}">${deep.tool_available ? `ExifTool ${escapeHtml(deep.tool_version || '')}` : 'ExifTool unavailable'}</span></div>${categories || `<div class="panel mb-4"><div class="panel-header">Built-in Metadata</div><div class="panel-body"><div class="kv-list">${result.metadata.map(item => `<div class="kv-key">${escapeHtml(item.source)} · ${escapeHtml(item.key)}</div><div class="kv-value mono" style="word-break:break-all">${escapeHtml(item.value)}</div>`).join('')}</div></div></div>`}${deep.notable.length ? `<div class="section-title mb-4">Notable Metadata</div>${deep.notable.map(item => `<div class="panel mb-4"><div class="panel-header">${escapeHtml(item.severity.toUpperCase())} · ${escapeHtml(item.title)}</div><div class="panel-body text-sm">${escapeHtml(item.reason)}${item.value ? `<div class="mono text-xs mt-4" style="word-break:break-all">${escapeHtml(item.value)}</div>` : ''}</div></div>`).join('')}` : ''}<details class="panel mt-4"><summary class="panel-header" style="cursor:pointer">Raw ExifTool Output</summary><div class="panel-body"><pre class="mono text-xs" style="white-space:pre-wrap;word-break:break-all;max-height:420px;overflow:auto">${escapeHtml(deep.raw_exiftool || 'No ExifTool output available.')}</pre></div></details>
     ${result.warnings.length ? `<div class="panel mt-4"><div class="panel-header" style="color:var(--warning)">Warnings</div><div class="panel-body text-xs">${result.warnings.map(item => `<div>• ${escapeHtml(item)}</div>`).join('')}</div></div>` : ''}</div>`;
 }
 
@@ -281,7 +298,7 @@ function renderInspector(result: StegoAnalysisResponse): string {
   if (!inspectedFindingId) return '';
   const finding = result.findings.find(item => item.finding_id === inspectedFindingId);
   if (!finding) return '';
-  return `<div class="panel mt-4" id="stego-inspector"><div class="panel-header" style="display:flex;justify-content:space-between"><span>Extraction Inspector</span><button class="btn btn-secondary btn-sm" id="stego-close-inspector">Close</button></div><div class="panel-body">
+  return `<dialog class="detail-dialog detail-dialog-wide" id="stego-inspector" aria-labelledby="stego-inspector-title"><div class="detail-dialog-header"><div><div class="section-title" id="stego-inspector-title">Extraction Inspector</div><div class="text-xs text-muted mt-2">${escapeHtml(finding.title)}</div></div><button class="detail-dialog-close" id="stego-close-inspector" aria-label="Close extraction inspector">&times;</button></div><div class="detail-dialog-body">
     <div class="kv-list mb-4">
       <div class="kv-key">Finding</div><div class="kv-value">${escapeHtml(finding.title)}</div>
       <div class="kv-key">Extraction method</div><div class="kv-value mono">${escapeHtml(finding.method?.notation || finding.source)}</div>
@@ -295,7 +312,7 @@ function renderInspector(result: StegoAnalysisResponse): string {
     <div class="tab-bar" id="stego-inspector-tabs">${(['text', 'hex', 'binary', 'raw'] as InspectorView[]).map(view => `<div class="tab-item ${inspectorView === view ? 'active' : ''}" data-view="${view}">${view.toUpperCase()}</div>`).join('')}</div>
     <pre class="mono" style="white-space:pre-wrap;word-break:break-all;max-height:360px;overflow:auto;background:var(--bg-primary);padding:12px">${escapeHtml(inspectorContent(finding))}</pre>
     <button class="btn btn-primary btn-sm" data-export="${finding.finding_id}">Export Data${finding.data_truncated ? ' (bounded preview)' : ''}</button>
-  </div></div>`;
+  </div></dialog>`;
 }
 
 function exportFinding(findingId: string): void {
@@ -338,14 +355,17 @@ function bindEvents(): void {
     inspectedFindingId = button.dataset.inspect || null;
     inspectorView = 'text';
     renderShell();
-    document.getElementById('stego-inspector')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }));
   document.querySelectorAll<HTMLElement>('[data-export]').forEach(button => button.addEventListener('click', () => exportFinding(button.dataset.export || '')));
-  document.getElementById('stego-close-inspector')?.addEventListener('click', () => { inspectedFindingId = null; renderShell(); });
+  const inspector = document.getElementById('stego-inspector') as HTMLDialogElement | null;
+  document.getElementById('stego-close-inspector')?.addEventListener('click', () => inspector?.close());
+  inspector?.addEventListener('close', () => { inspectedFindingId = null; });
+  inspector?.addEventListener('click', event => { if (event.target === inspector) inspector.close(); });
   document.querySelectorAll<HTMLElement>('#stego-inspector-tabs .tab-item').forEach(tab => tab.addEventListener('click', () => {
     inspectorView = (tab.dataset.view as InspectorView | undefined) || 'text';
     renderShell();
   }));
+  inspector?.showModal();
 }
 
 async function runAnalysis(): Promise<void> {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,164 @@ class MagicByteDetection(BaseModel):
 class MetadataEntry(BaseModel):
     key: str
     value: str | int | float | bool
+
+
+Severity = Literal["critical", "high", "medium", "low", "info"]
+
+
+class ForensicFinding(BaseModel):
+    finding_id: str
+    severity: Severity
+    title: str
+    reason: str
+    analyzer: Literal["metadata", "qr_barcode", "file"]
+    section: str
+    field: str | None = None
+    value: str | None = None
+
+
+class DeepMetadataEntry(BaseModel):
+    group: str
+    tag: str
+    key: str
+    category: str
+    value: Any
+    display_value: str
+    importance: Severity = "info"
+
+
+class DecodeStep(BaseModel):
+    transform: str
+    parameter: str | None = None
+    output: str
+
+
+class DecodedMetadataValue(BaseModel):
+    field: str
+    original: str
+    detected_encoding: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    chain: list[DecodeStep]
+    decoded: str
+    flags: list[str] = Field(default_factory=list)
+
+
+class MetadataTimelineEvent(BaseModel):
+    field: str
+    timestamp: str
+    normalized_timestamp: str | None = None
+    description: str
+
+
+class GPSMetadata(BaseModel):
+    latitude: float
+    longitude: float
+    altitude: float | None = None
+    timestamp: str | None = None
+    direction: str | None = None
+    location: str | None = None
+
+
+class EmbeddedMetadataObject(BaseModel):
+    tag: str
+    kind: str
+    description: str
+    byte_size: int | None = Field(default=None, ge=0)
+    mime_type: str | None = None
+    data_base64: str | None = None
+
+
+class MetadataAnalysis(BaseModel):
+    tool_available: bool
+    tool: str = "ExifTool"
+    tool_version: str | None = None
+    summary: str
+    categories: dict[str, list[DeepMetadataEntry]] = Field(default_factory=dict)
+    notable: list[ForensicFinding] = Field(default_factory=list)
+    decoded: list[DecodedMetadataValue] = Field(default_factory=list)
+    timeline: list[MetadataTimelineEvent] = Field(default_factory=list)
+    timestamp_anomalies: list[str] = Field(default_factory=list)
+    gps: GPSMetadata | None = None
+    embedded_objects: list[EmbeddedMetadataObject] = Field(default_factory=list)
+    all_metadata: list[DeepMetadataEntry] = Field(default_factory=list)
+    raw_exiftool: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BoundingBox(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(ge=0)
+    height: int = Field(ge=0)
+
+
+class RecoveryStep(BaseModel):
+    operation: str
+    tool: str
+    parameters: dict[str, str | int | float | bool] = Field(default_factory=dict)
+
+
+class QRDecodeResult(BaseModel):
+    detected_encodings: list[str] = Field(default_factory=list)
+    chain: list[DecodeStep] = Field(default_factory=list)
+    decoded: str | None = None
+    flags: list[str] = Field(default_factory=list)
+
+
+class CodeFinding(BaseModel):
+    finding_id: str
+    symbology: str
+    decoded_value: str
+    source: str
+    page: int | None = Field(default=None, ge=1)
+    frame: int | None = Field(default=None, ge=0)
+    timestamp_seconds: float | None = Field(default=None, ge=0)
+    bounding_box: BoundingBox | None = None
+    decoder: str
+    confidence: Literal["high", "medium", "low"]
+    recovery_method: str
+    provenance: list[RecoveryStep]
+    secondary_analysis: QRDecodeResult | None = None
+
+
+class RecoveryAttempt(BaseModel):
+    source: str
+    variant: str
+    decoder: str
+    success: bool
+    detail: str
+
+
+class RecoveryVariant(BaseModel):
+    variant_id: str
+    label: str
+    source: str
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    mime_type: Literal["image/png"] = "image/png"
+    image_base64: str
+    transformations: list[RecoveryStep]
+    best_candidate: bool = False
+
+
+class QRStructure(BaseModel):
+    source: str
+    finder_patterns: int | None = Field(default=None, ge=0)
+    estimated_version: int | None = Field(default=None, ge=1, le=40)
+    estimated_modules: str | None = None
+    orientation_degrees: float | None = None
+    decode_failed: bool = True
+
+
+class QRBarcodeAnalysis(BaseModel):
+    findings: list[CodeFinding] = Field(default_factory=list)
+    attempts: list[RecoveryAttempt] = Field(default_factory=list)
+    variants: list[RecoveryVariant] = Field(default_factory=list)
+    structures: list[QRStructure] = Field(default_factory=list)
+    decoders_available: list[str] = Field(default_factory=list)
+    decoders_unavailable: list[str] = Field(default_factory=list)
+    scanned_sources: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class StringOccurrence(BaseModel):
@@ -120,6 +278,9 @@ class ForensicsTriageResponse(BaseModel):
     magic: MagicByteDetection
     hashes: Hashes
     metadata: list[MetadataEntry]
+    metadata_analysis: MetadataAnalysis
+    qr_barcode: QRBarcodeAnalysis
+    notable_findings: list[ForensicFinding] = Field(default_factory=list)
     strings: list[StringOccurrence]
     strings_truncated: bool
     entropy: EntropyResult

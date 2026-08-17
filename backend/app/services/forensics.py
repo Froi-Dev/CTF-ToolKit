@@ -30,7 +30,9 @@ class ForensicsTriageService:
     def __init__(self, analyzer: FileTriageAnalyzer | None = None) -> None:
         self._analyzer = analyzer or FileTriageAnalyzer()
 
-    async def triage(self, upload: UploadFile) -> ForensicsTriageResponse:
+    async def triage(
+        self, upload: UploadFile, *, custom_flag_regex: str | None = None
+    ) -> ForensicsTriageResponse:
         original_filename = _safe_display_name(upload.filename)
         maximum = self._analyzer.policy.max_upload_bytes
         artifact_id = str(uuid4())
@@ -52,6 +54,7 @@ class ForensicsTriageService:
                     original_filename=original_filename,
                     artifact_id=artifact_id,
                     extraction_root=workspace / "extracted",
+                    custom_flag_regex=custom_flag_regex,
                 )
                 return await to_thread.run_sync(
                     partial(self._analyzer.analyze, triage_input)

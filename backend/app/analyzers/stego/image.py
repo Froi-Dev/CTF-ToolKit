@@ -13,6 +13,7 @@ import numpy as np
 from PIL import ExifTags, Image, UnidentifiedImageError
 
 from app.analyzers.crypto.decoder import RecursiveDecoder, detect_encodings
+from app.analyzers.forensics.metadata import DeepMetadataAnalyzer
 from app.analyzers.forensics.signatures import root_signature, scan_signatures
 from app.analyzers.stego.pixel import PixelScanPolicy, PixelStegoEngine
 from app.analyzers.stego.structures import JPEG_SIGNATURE, PNG_SIGNATURE, parse_jpeg, parse_png
@@ -20,7 +21,7 @@ from app.core.analyzers import BaseAnalyzer
 from app.core.errors import InvalidArtifactError, ToolExecutionError, ToolNotAvailableError
 from app.core.flag_detection import FlagDetector
 from app.core.tool_runner import ToolRunner
-from app.schemas.forensics import EntropyResult, Hashes
+from app.schemas.forensics import EntropyResult, Hashes, MetadataAnalysis
 from app.schemas.crypto import DecodeRequest
 from app.schemas.stego import (
     BitPlaneResult,
@@ -189,6 +190,13 @@ def _pack_lsb(samples: np.ndarray, max_bytes: int) -> tuple[bytes, int, bool]:
     return output, len(samples), len(samples) // 8 > max_bytes
 
 
+def _pack_msb(samples: np.ndarray, max_bytes: int) -> tuple[bytes, int, bool]:
+    byte_count = min(len(samples) // 8, max_bytes)
+    bits = ((samples[: byte_count * 8] >> 7) & 1).astype(np.uint8, copy=False)
+    output = np.packbits(bits, bitorder="big").tobytes()
+    return output, len(samples), len(samples) // 8 > max_bytes
+
+
 def _channel_names(mode: str) -> list[str]:
     if mode == "L":
         return ["L"]
@@ -312,6 +320,7 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
         self,
         policy: StegoPolicy | None = None,
         tool_runner: ToolRunner | None = None,
+        metadata_analyzer: DeepMetadataAnalyzer | None = None,
     ) -> None:
         self.policy = policy or StegoPolicy()
         self._flags = FlagDetector(_FLAG_PREFIXES)
@@ -319,6 +328,7 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
         self._tool_runner = tool_runner or ToolRunner(
             {"zsteg"}, default_timeout_seconds=8.0, default_output_limit=256 * 1024
         )
+        self._metadata_analyzer = metadata_analyzer or DeepMetadataAnalyzer()
         self._pixels = PixelStegoEngine(
             PixelScanPolicy(
                 max_candidate_bytes=self.policy.max_candidate_bytes,
@@ -391,6 +401,17 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
             if entry not in metadata:
                 metadata.append(entry)
         metadata = metadata[: self.policy.max_metadata_entries]
+        try:
+            metadata_analysis = self._metadata_analyzer.analyze(
+                artifact.path, artifact.original_filename
+            )
+        except Exception as exc:
+            metadata_analysis = MetadataAnalysis(
+                tool_available=True,
+                summary="ExifTool metadata analysis failed safely; built-in image metadata remains available.",
+                warnings=[f"ExifTool analyzer error: {type(exc).__name__}."],
+            )
+        warnings.extend(metadata_analysis.warnings)
         if image_format == "JPEG":
             warnings.append(
                 "JPEG is lossy; pixel bit-plane results are shown for triage but are less reliable than lossless-image results."
@@ -405,6 +426,7 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
             plane for name, values in channel_values.items() for plane in _bit_planes(name, values)
         ]
         lsb = self._lsb(channel_values, channels, warnings)
+        msb = self._msb(channel_values, channels, warnings)
         pixels = np.frombuffer(pixel_bytes, dtype=np.uint8).reshape(height, width, channel_count)
         findings, bit_plane_visuals, barcodes, pixel_scan = self._pixels.scan(
             pixels,
@@ -432,6 +454,8 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
         file_flags = _flag_candidates(self._flags, data, "file")
         flags = list(file_flags)
         for result in lsb:
+            flags.extend(result.flags)
+        for result in msb:
             flags.extend(result.flags)
         for finding in findings:
             flags.extend(finding.flags)
@@ -461,6 +485,7 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
                 has_alpha=has_alpha,
             ),
             metadata=metadata,
+            metadata_analysis=metadata_analysis,
             png_chunks=png_chunks,
             png_chunks_truncated=png_truncated,
             jpeg_segments=jpeg_segments,
@@ -469,6 +494,7 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
             channels=inspections,
             bit_planes=bit_planes,
             lsb=lsb,
+            msb=msb,
             entropy=EntropyAnalysis(
                 file=_entropy(data),
                 pixel_data=_entropy(pixel_bytes),
@@ -839,6 +865,52 @@ class ImageStegoAnalyzer(BaseAnalyzer[StegoInput, StegoAnalysisResponse]):
                 for signature, offset in scan_signatures(extracted, self.policy.max_signature_matches)
             ]
             flags = _flag_candidates(self._flags, extracted, f"lsb:{stream_name}")
+            printable = _printable_ratio(extracted)
+            suspicious = bool(signatures or flags) or (len(extracted) >= 16 and printable >= 0.85)
+            results.append(
+                LsbAnalysis(
+                    stream=stream_name,
+                    channel_order=stream_name,
+                    available_bits=available_bits,
+                    extracted_bytes=len(extracted),
+                    truncated=truncated,
+                    printable_ratio=printable,
+                    entropy=_entropy(extracted),
+                    preview_ascii=_ascii_preview(extracted),
+                    preview_hex=_preview_hex(extracted),
+                    signatures=signatures,
+                    flags=flags,
+                    suspicious=suspicious,
+                )
+            )
+        return results
+
+    def _msb(
+        self, channel_values: dict[str, np.ndarray], channels: list[str], warnings: list[str]
+    ) -> list[LsbAnalysis]:
+        streams: list[tuple[str, np.ndarray]] = []
+        visible_channels = [name for name in channels if name != "A"]
+        if len(visible_channels) > 1:
+            composite = np.column_stack(
+                [channel_values[name] for name in visible_channels]
+            ).reshape(-1)
+            streams.append(("".join(visible_channels), composite))
+        streams.extend((name, channel_values[name]) for name in channels)
+
+        results: list[LsbAnalysis] = []
+        for stream_name, samples in streams:
+            extracted, available_bits, truncated = _pack_msb(
+                samples, self.policy.max_lsb_bytes
+            )
+            if truncated:
+                warnings.append(
+                    f"MSB stream {stream_name} was truncated at {self.policy.max_lsb_bytes} extracted bytes."
+                )
+            signatures = [
+                LsbSignature(detected_type=signature.name, mime_type=signature.mime_type, offset=offset)
+                for signature, offset in scan_signatures(extracted, self.policy.max_signature_matches)
+            ]
+            flags = _flag_candidates(self._flags, extracted, f"msb:{stream_name}")
             printable = _printable_ratio(extracted)
             suspicious = bool(signatures or flags) or (len(extracted) >= 16 and printable >= 0.85)
             results.append(

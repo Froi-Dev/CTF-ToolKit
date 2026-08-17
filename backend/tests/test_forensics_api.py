@@ -1,15 +1,20 @@
 import hashlib
 import io
+import json
 import stat
 import tarfile
 import zipfile
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.analyzers.forensics import FileTriageAnalyzer, TriagePolicy
+from app.analyzers.forensics.metadata import DeepMetadataAnalyzer
 from app.api.v1.routes import forensics as forensics_route
 from app.main import app
 from app.services.forensics import ForensicsTriageService
+from app.core.tool_runner import ToolExecution
 
 client = TestClient(app)
 
@@ -169,3 +174,92 @@ def test_flag_offsets_are_bytes_not_decoded_character_positions() -> None:
     )
     assert response.status_code == 200
     assert response.json()["flags"][0]["offset"] == 2
+
+
+class _ExifRunner:
+    def available(self, tool: str) -> bool:
+        return tool == "exiftool"
+
+    def run(self, tool: str, arguments: list[str], **_kwargs: object) -> ToolExecution:
+        if arguments == ["-ver"]:
+            output = b"13.25\n"
+        else:
+            output = json.dumps([{
+                "SourceFile": "/tmp/random/artifact",
+                "System:FileName": "artifact-random",
+                "System:FileCreateDate": "2026:04:01 12:00:00",
+                "EXIF:DateTimeOriginal": "2019:08:13 12:00:00",
+                "EXIF:GPSLatitude": 14.5995,
+                "EXIF:GPSLongitude": 120.9842,
+                "PNG:Comment": "cGljb0NURnttZXRhZGF0YV9mbGFnfQ==",
+                "XMP:Author": "admin_backup",
+            }]).encode()
+        return ToolExecution(tool="exiftool", returncode=0, duration_ms=1, stdout=output, stderr=b"")
+
+
+def test_deep_metadata_decodes_flags_builds_timeline_and_normalizes_identity(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"evidence")
+    analysis = DeepMetadataAnalyzer(_ExifRunner()).analyze(artifact, "challenge.png")  # type: ignore[arg-type]
+
+    assert analysis.tool_available is True
+    assert analysis.tool_version == "13.25"
+    assert analysis.gps is not None
+    assert (analysis.gps.latitude, analysis.gps.longitude) == (14.5995, 120.9842)
+    assert analysis.timestamp_anomalies
+    decoded = next(item for item in analysis.decoded if item.field == "PNG:Comment")
+    assert decoded.decoded == "picoCTF{metadata_flag}"
+    assert decoded.flags == ["picoCTF{metadata_flag}"]
+    assert any(item.severity == "critical" for item in analysis.notable)
+    filename = next(item for item in analysis.all_metadata if item.tag == "FileName")
+    assert filename.display_value == "challenge.png"
+
+
+def test_qr_recovery_never_claims_payload_from_blank_image() -> None:
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.new("RGB", (32, 32), "white").save(output, "PNG")
+    response = client.post(
+        "/api/v1/forensics/triage",
+        files={"file": ("blank.png", output.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    recovery = response.json()["qr_barcode"]
+    assert recovery["findings"] == []
+    assert recovery["variants"]
+    assert all(not item["success"] for item in recovery["attempts"])
+
+
+def test_file_analysis_decodes_real_qr_and_promotes_flag() -> None:
+    cv2 = pytest.importorskip("cv2")
+    qr = cv2.QRCodeEncoder_create().encode("CTF{file_analysis_qr}")
+    qr = cv2.copyMakeBorder(qr, 4, 4, 4, 4, cv2.BORDER_CONSTANT, value=255)
+    qr = cv2.resize(qr, None, fx=8, fy=8, interpolation=cv2.INTER_NEAREST)
+    encoded, png = cv2.imencode(".png", qr)
+    assert encoded
+
+    response = client.post(
+        "/api/v1/forensics/triage",
+        files={"file": ("code.png", png.tobytes(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["decoded_value"] == "CTF{file_analysis_qr}" for item in payload["qr_barcode"]["findings"])
+    assert any(item["value"] == "CTF{file_analysis_qr}" for item in payload["flags"])
+
+
+def test_file_analysis_qr_pipeline_includes_image_bit_planes() -> None:
+    from PIL import Image
+    from app.analyzers.forensics.qr_barcode import QRBarcodeRecoveryAnalyzer
+
+    variants = QRBarcodeRecoveryAnalyzer._variants(
+        Image.new("RGB", (8, 8), "white"), include_bit_planes=True
+    )
+    labels = {label for label, _image, _steps in variants}
+
+    assert "R bit-plane 0" in labels
+    assert "G bit-plane 7" in labels
+    assert "B bit-plane 3" in labels

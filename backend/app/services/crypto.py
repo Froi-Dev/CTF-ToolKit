@@ -6,6 +6,10 @@ from app.analyzers.crypto import RecursiveDecoder
 from app.analyzers.crypto.openssl_enc import analyze_openssl_enc, decrypt_openssl_enc
 from app.analyzers.crypto.recipe import run_recipe
 from app.analyzers.crypto.rsa import analyze_crypto, decrypt_rsa
+from app.analyzers.crypto.symmetric import SymmetricAnalyzer, SymmetricAnalyzeInput
+from app.analyzers.crypto.stream import StreamAnalyzer, StreamAnalyzeInput
+from app.analyzers.crypto.hash import HashAnalyzer, HashAnalyzeInput
+from app.analyzers.crypto.custom import CustomEncryptionAnalyzer, CustomAnalyzeInput
 from app.schemas.crypto import (
     CryptoAnalyzeRequest,
     CryptoAnalyzeResponse,
@@ -46,3 +50,19 @@ class CryptoDecryptService:
 
     async def openssl_decrypt(self, request: OpenSslDecryptRequest) -> OpenSslDecryptResponse:
         return await to_thread.run_sync(partial(decrypt_openssl_enc, request))
+
+    async def symmetric_analyze(self, request: SymmetricAnalyzeInput):
+        analyzer = SymmetricAnalyzer()
+        return await to_thread.run_sync(partial(analyzer.analyze, request))
+
+    async def stream_analyze(self, request: StreamAnalyzeInput):
+        analyzer = StreamAnalyzer()
+        return await to_thread.run_sync(partial(analyzer.analyze, request))
+
+    async def hash_analyze(self, request: HashAnalyzeInput):
+        analyzer = HashAnalyzer()
+        return await to_thread.run_sync(partial(analyzer.analyze, request))
+
+    async def custom_analyze(self, request: CustomAnalyzeInput):
+        analyzer = CustomEncryptionAnalyzer()
+        return await to_thread.run_sync(partial(analyzer.analyze, request))

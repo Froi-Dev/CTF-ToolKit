@@ -1,5 +1,5 @@
 import { apiRequest } from './client.ts';
-import type { EntropyResult, Hashes } from './forensics.ts';
+import type { EntropyResult, Hashes, MetadataAnalysis } from './forensics.ts';
 
 export interface ExtractionMethod {
   notation: string;
@@ -60,6 +60,7 @@ export interface StegoAnalysisResponse {
     value: string | number | boolean;
     source: 'image' | 'exif' | 'xmp' | 'png-text' | 'icc' | 'container';
   }>;
+  metadata_analysis: MetadataAnalysis;
   png_chunks: Array<{
     index: number;
     chunk_type: string;
@@ -133,6 +134,7 @@ export interface StegoAnalysisResponse {
     }>;
     suspicious: boolean;
   }>;
+  msb: StegoAnalysisResponse['lsb'];
   entropy: {
     file: EntropyResult;
     pixel_data: EntropyResult;

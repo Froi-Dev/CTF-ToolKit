@@ -24,6 +24,7 @@ import {
   type ValueEncoding,
 } from '../api/crypto.ts';
 import { ApiError } from '../api/client.ts';
+import { renderAdvancedCrypto } from './crypto_advanced_ui.ts';
 import { icons } from '../data.ts';
 
 const OPERATIONS: { id: RecipeOperationName; label: string }[] = [
@@ -94,6 +95,7 @@ export function renderCrypto(view = 'decoder'): void {
   const main = document.getElementById('main');
   if (!main) return;
   if (view === 'decryptor') renderDecryptor(main);
+  else if (view === 'advanced') renderAdvancedCrypto(main);
   else renderDecoder(main);
 }
 
